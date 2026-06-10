@@ -1,0 +1,10 @@
+{
+  "userPrompt": "Generate native PowerShell (.ps1) equivalents of every .sh script in the harness (harness/orchestrate.sh, harness/lib/*.sh, harness/hooks/*.sh, tests/run-all.sh, tests/layer2/smoke-test.sh, tests/layer3/meta-test.sh). Each .ps1 must sit side-by-side with its .sh counterpart, share the same base name, and provide functionally equivalent behavior on native Windows PowerShell (no WSL/bash dependency). Use README.md and CLAUDE.md as the source of truth for behavior and the existing tests/ directory tests as validation references.",
+  "projectType": "cli-tool",
+  "contextStrategy": "reset",
+  "model": "opus",
+  "maxSprintAttempts": 3,
+  "maxContractRounds": 3,
+  "costCapPerSprint": 25.00,
+  "totalCostCap": 200.00
+}
