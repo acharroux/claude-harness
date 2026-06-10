@@ -1,0 +1,89 @@
+{
+  "sprintId": "sprint-01",
+  "status": "FAIL",
+  "summary": "Three .ps1 foundation libs exist, parse cleanly under Windows PowerShell 5.1, dot-source utils via $PSScriptRoot, and load together without error. Headers correctly use the revised PS-5.1-compatible directives (#Requires -Version 5.1, Set-StrictMode -Version 3.0, $ErrorActionPreference = 'Stop'). The forbidden-token AST scan is clean; .sh originals are unchanged; no .ps1 sibling exists for any hooks/*.sh. Write-Utf8NoBom writes BOM-less UTF-8, and Invoke-NativeCommand throws on non-zero exit. However, Update-RegressionRegistry has a runtime-breaking bug: it captures multi-line jq output ('[.criteria[].id]') as a PowerShell string array, then splats it into the next jq call's --argjson criteria, where parameter binding sends each line as a separate argument and jq dies with 'invalid JSON text passed to --argjson'. This will hard-fail the first time the orchestrator tries to register sprint-01's contract criteria into the regression registry. One blocker -> FAIL.",
+  "checks": [
+    {
+      "id": "A.1",
+      "name": "All three .ps1 files exist beside their .sh counterparts",
+      "status": "PASS",
+      "evidence": "harness/lib/{utils,git,invoke}.ps1 all present alongside their .sh siblings (verified via directory listing)."
+    },
+    {
+      "id": "A.2",
+      "name": "Each parses cleanly with zero errors via [Parser]::ParseFile",
+      "status": "PASS",
+      "evidence": "Ran [System.Management.Automation.Language.Parser]::ParseFile on all three; zero errors per file."
+    },
+    {
+      "id": "B.3",
+      "name": "Headers: #Requires -Version 5.1, Set-StrictMode -Version 3.0, $ErrorActionPreference = 'Stop'",
+      "status": "PASS",
+      "evidence": "All three files' first three non-blank lines exactly match the revised header. None still references PS 7.0 or Set-StrictMode -Version Latest."
+    },
+    {
+      "id": "C.4",
+      "name": "git.ps1 and invoke.ps1 dot-source utils.ps1 via $PSScriptRoot",
+      "status": "PASS",
+      "evidence": "git.ps1:8 and invoke.ps1:11 both contain `. (Join-Path $PSScriptRoot 'utils.ps1')`."
+    },
+    {
+      "id": "C.5",
+      "name": "All three load together under powershell 5.1",
+      "status": "PASS",
+      "evidence": "powershell -NoProfile -ExecutionPolicy Bypass -File <smoke> dot-sourced all three in order and printed 'loaded' with no exceptions."
+    },
+    {
+      "id": "D.6",
+      "name": "Forbidden-tool AST scan (CommandAst-aware)",
+      "status": "PASS",
+      "evidence": "Walked all CommandAst nodes in all three files; no GetCommandName() match for bash/sh/wsl/sed/awk/grep/find/realpath/mktemp/dirname/basename/tr/cut/xargs."
+    },
+    {
+      "id": "E.coverage",
+      "name": "Capability coverage (every .sh function has a .ps1 equivalent)",
+      "status": "PASS",
+      "evidence": "Mapped each .sh function to a .ps1 function and verified the body covers the same observable behavior:\n\nutils.sh:\n- log_info       -> Write-LogInfo       YES (stderr, [harness] prefix, blue)\n- log_success    -> Write-LogSuccess    YES (stderr, green)\n- log_warn       -> Write-LogWarn       YES (stderr, yellow)\n- log_error      -> Write-LogError      YES (stderr, red)\n- log_phase      -> Write-LogPhase      YES (stderr, cyan bar of length 51 + msg)\n- sprint_pad     -> Format-SprintNumber YES (zero-pad 2)\n- sprint_dir     -> Get-SprintDirectory YES (harness-state/sprints/sprint-NN)\n- slugify        -> ConvertTo-Slug      YES (lowercase, [^a-z0-9]->-, collapse, trim, max 50)\n- json_read      -> Read-JsonField      YES (jq -r, swallow errors, '' on failure)\n- file_exists    -> Test-FileNonEmpty   YES (Test-Path + Length>0)\n- init_harness_state -> Initialize-HarnessState YES (creates dirs, config.json with same field set, cost-log.json, regression/registry.json, progress.md, env-var defaults match)\n- log_cost       -> Add-CostEntry       YES (same role/sprint/timestamp/inputTokens/outputTokens schema, jq atomic update)\n- check_cost_cap -> Test-CostCap        YES (parity: reads .totalCostCap, logs but doesn't enforce, mirroring .sh)\n- update_progress -> Update-Progress    YES (same headings, same fallback to title/Sprint N, optional merge-sha line)\n- update_handoff  -> Update-Handoff     YES (same init JSON skeleton, same jq filter, same atomic write pattern)\n- update_regression_registry -> Update-RegressionRegistry  PARTIAL (function present, fields right, but jq invocation is broken at runtime -- see blocker below)\n\ngit.sh:\n- git_create_harness_branch -> New-HarnessBranch  YES (resolves base via origin/HEAD, falls back to current/main, creates or checks out 'harness/<slug>')\n- git_create_sprint_branch  -> New-SprintBranch    YES (deletes stale, creates '<harness>-sprint-NN')\n- git_merge_sprint          -> Merge-SprintBranch  YES (commits evaluator artifacts, no-ff merge, 'harness(sprint-NN): merge (PASS, attempt K)' message, 'harness/sprint-NN/pass' tag, branch -d)\n- git_fail_sprint_attempt   -> Invoke-FailSprintAttempt YES ('harness/sprint-NN/attempt-K' tag, stash + checkout + branch -D)\n- git_commit_harness_state  -> Save-HarnessState   YES (add + add -u, skip if no diff, commit with given msg)\n- git_create_pr             -> New-HarnessPR       YES (gh check, remote check, push -u, base branch resolution, 256-char title trim, gh pr create with same flags)\n- git_create_fix_pr         -> New-FixPR           YES (gh+remote checks, ls-remote fallback to default branch, push fix branch, push 'harness/<fixId>/pass' tag, same body template, 50-char title trim)\n- git_create_issue          -> New-HarnessIssue    YES (gh+remote checks, gh issue create with --label 'harness-fix,bug', extracts trailing digits via [regex])\n- generate_pr_body          -> Build-PRBody        YES (same project name 80-char trim, same table columns, same eval-report.json fields .overallResult/.passCount/.failCount/.attempt, same Configuration block, same footer link)\n\ninvoke.sh:\n- invoke_claude -> Invoke-ClaudeAgent YES (same flag set: -p, --agent, --max-turns, --dangerously-skip-permissions, --output-format stream-json, --verbose; same --settings discovery via HARNESS_ROOT/.claude/settings.json; same --mcp-config opt-in; same NDJSON parse using jq for assistant tool_use and result.total_cost_usd; propagates exit code via $LASTEXITCODE)\n\nAll capabilities are mapped. The PARTIAL mark on update_regression_registry is captured as a blocker, not a coverage gap."
+    },
+    {
+      "id": "F.7",
+      "name": ".sh originals unchanged",
+      "status": "PASS",
+      "evidence": "git diff main -- harness/lib/utils.sh harness/lib/git.sh harness/lib/invoke.sh produced empty output."
+    },
+    {
+      "id": "G.8",
+      "name": "No .ps1 shadows under harness/hooks/",
+      "status": "PASS",
+      "evidence": "harness/hooks/ contains only on-evaluator-stop.sh, on-generator-stop.sh, on-stop.sh, validate-schema.sh -- no .ps1 files."
+    },
+    {
+      "id": "H.9",
+      "name": "Write-Utf8NoBom writes UTF-8 without BOM",
+      "status": "PASS",
+      "evidence": "Wrote 'hello' to a temp file via Write-Utf8NoBom; raw bytes had no 0xEF 0xBB 0xBF prefix and decoded back to 'hello'."
+    },
+    {
+      "id": "I.10",
+      "name": "Invoke-NativeCommand throws on non-zero exit",
+      "status": "PASS",
+      "evidence": "Calling `Invoke-NativeCommand -FilePath 'cmd' -Arguments '/c','exit','1'` threw with message 'Command failed (1): cmd /c exit 1'."
+    },
+    {
+      "id": "X.update-regression-registry-runtime",
+      "name": "Update-RegressionRegistry actually works at runtime",
+      "status": "FAIL",
+      "evidence": "Reproduced with a representative contract.json containing {\"criteria\":[{\"id\":\"C1-01\"},{\"id\":\"C1-02\"},{\"id\":\"C1-03\"}]} and a fresh registry.json. utils.ps1:392 captures `& jq '[.criteria[].id]' $contractPath` into $criteriaIds, which becomes a 5-element string[] (one element per output line: '[', '  \"C1-01\",', '  \"C1-02\",', '  \"C1-03\"', ']'). On line 403, `--argjson criteria $criteriaIds` causes PowerShell to send each array element as its own argv entry to jq. jq receives `--argjson criteria [` and aborts with `invalid JSON text passed to --argjson`. $LASTEXITCODE is 2, so the wrapper throws 'jq failed to update registry.json'. This guarantees a hard failure the first time the orchestrator calls Update-RegressionRegistry after a sprint passes."
+    }
+  ],
+  "blockers": [
+    {
+      "severity": "blocking",
+      "where": "harness/lib/utils.ps1:392 and 400-404 (Update-RegressionRegistry)",
+      "what": "$criteriaIds = & jq '[.criteria[].id]' $contractPath captures jq's pretty-printed multi-line output as a PowerShell string array. Passing that array to the next call as `--argjson criteria $criteriaIds` splats it into separate argv entries; jq receives a bare '[' as the value of --argjson and exits non-zero with 'invalid JSON text passed to --argjson'.",
+      "why": "Native commands invoked from PowerShell receive each element of an array argument as its own argv slot. The .sh version works because Bash command substitution preserves the value as one shell word that is then split on IFS but each line happens to be empty-or-content and ends up being read as a single argument by `--argjson`. In PS, the equivalent must (a) join the captured lines back into a single JSON string, or (b) call jq with `-c` (compact output) so the array comes back as a single line. Either fixes the splat.",
+      "suggestedFix": "Two-line fix in Update-RegressionRegistry. Option A (preferred, minimal): change the capture to compact form so it's a single string -- `$criteriaIds = (& jq -c '[.criteria[].id]' $contractPath) -join ''`. Then `--argjson criteria $criteriaIds` passes one well-formed JSON token. Option B: keep the pretty output and pre-join -- `$criteriaIds = & jq '[.criteria[].id]' $contractPath; if ($criteriaIds -is [array]) { $criteriaIds = $criteriaIds -join \"`n\" }`. Add an explicit `if ($LASTEXITCODE -ne 0) { throw ... }` after the capture. Add a smoke test in the generator log that round-trips a 3+ criteria contract through Update-RegressionRegistry and reads back .sprints['1'].criteria to confirm length matches."
+    }
+  ],
+  "regressionResults": []
+}

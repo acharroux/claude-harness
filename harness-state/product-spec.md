@@ -31,8 +31,10 @@ Hooks (`harness/hooks/*.sh`, 4 files, ~348 lines) are out of scope.
 ## Cross-cutting requirements every `.ps1` must satisfy
 
 ### Runtime
-- **Primary target: PowerShell 7+ (`pwsh`)**. Each script begins with `#Requires -Version 7.0`, then `Set-StrictMode -Version Latest`, then `$ErrorActionPreference = 'Stop'`.
-- Each `.ps1` runnable as `pwsh -NoProfile -File <path> [args...]`. No `Set-ExecutionPolicy` change required from the user.
+- **Target: Windows PowerShell 5.1 AND PowerShell 7+** — both must work. PS 5.1 ships with every Windows 10/11; not requiring an install dramatically lowers friction for end users.
+- Each script begins with `#Requires -Version 5.1`, then `Set-StrictMode -Version 3.0` (5.1-compatible; do NOT use `Latest` because that means different things in 5.1 vs 7), then `$ErrorActionPreference = 'Stop'`.
+- Each `.ps1` runnable as `powershell -NoProfile -File <path> [args...]` (5.1) or `pwsh -NoProfile -File <path> [args...]` (7+). No `Set-ExecutionPolicy` change required from the user.
+- **Encoding caveat for PS 5.1**: `Set-Content -Encoding utf8NoBOM` does not exist in 5.1 — its `utf8` writes a BOM. Use the helper `Write-Utf8NoBom -Path X -Value Y` (defined in `utils.ps1`, implemented via `[System.IO.File]::WriteAllText($Path, $Value, [System.Text.UTF8Encoding]::new($false))`). Use this helper instead of `Set-Content -Encoding utf8*` everywhere.
 
 ### External-tool policy
 - **Allowed and expected**: `jq`, `git`, `gh`, `claude`, `node`, `npm`, `bats`. Use `& jq ...`, `& git ...`, etc. directly. If a `.sh` script pipes JSON through several `jq` filters in a row, the `.ps1` may either keep the pipeline (`(& jq -r '.foo' $f) | & jq ...`) or read once with `ConvertFrom-Json` and project — pick whichever stays closest to the source. **Default: keep the jq pipeline.** It minimizes translation risk.
@@ -47,7 +49,7 @@ Hooks (`harness/hooks/*.sh`, 4 files, ~348 lines) are out of scope.
 ### Path & encoding hygiene
 - All path joins via `Join-Path` or `[IO.Path]::Combine`. Never literal `/` in joins (literals inside command-line args to `git`/`jq` are fine — those tools accept either separator).
 - Anchor relative paths to `$PSScriptRoot` so scripts work from any cwd.
-- Write text files as **UTF-8 without BOM**: `Set-Content -Encoding utf8NoBOM` (PS7).
+- Write text files as **UTF-8 without BOM** via the `Write-Utf8NoBom` helper (see Runtime section). Do NOT rely on `Set-Content -Encoding utf8NoBOM` — that token only exists on PS 7.
 - Respect repo `.gitattributes` — text files end up LF-only when committed.
 
 ### Sourcing pattern
