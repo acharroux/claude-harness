@@ -1,0 +1,20 @@
+# Force LF line endings for everything in this repo, regardless of
+# the user's core.autocrlf setting. Bash on Git-Bash/WSL fails on
+# CRLF (errors like "$'\r': command not found"), and the rest of the
+# tooling (jq, bats, hooks) is happier with LF too. This repo has no
+# Windows-only text files, so a blanket rule is correct.
+*           text=auto eol=lf
+
+# Belt-and-braces for the formats most likely to break under CRLF.
+*.sh        text eol=lf
+*.bash      text eol=lf
+*.bats      text eol=lf
+*.json      text eol=lf
+*.md        text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+
+# Files without an extension that are still scripts/config.
+tests/helpers/claude  text eol=lf
+.gitignore  text eol=lf
+LICENSE     text eol=lf
