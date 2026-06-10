@@ -3,7 +3,7 @@
   "createdAt": "2026-06-10",
   "branchBase": "main",
   "harnessBranch": "harness/powershell-port-2026-06-10",
-  "notes": "Hooks under harness/hooks/ are out of scope (Claude executes them in its own env). 11 .sh files in scope; 11 .ps1 ports to produce.",
+  "notes": "Hooks under harness/hooks/ are out of scope (Claude executes them in its own env). 11 .sh files in scope; 11 .ps1 ports to produce. External tools jq/git/gh/claude/node/npm/bats are installed on Windows and may be invoked directly from .ps1; bash/sh/wsl/sed/awk/grep/find/realpath/mktemp/dirname/basename/tr/cut/xargs are forbidden.",
   "sprints": [
     {
       "id": "sprint-01",
@@ -22,7 +22,7 @@
         "utils.ps1 exposes the same logical helpers used by .sh (logging, JSON read/write, status writes, cost append, Invoke-OrFail wrapper). Public function names use PowerShell Verb-Noun convention but cover every behavior the .sh provides.",
         "git.ps1 wraps git/gh calls with the same observable side effects (branch, tag, commit message format 'harness(sprint-NN): ... [C-ID]', tag names 'harness/sprint-NN/pass' and 'harness/plan').",
         "invoke.ps1 runs the claude CLI with the same flags the .sh uses, captures cost/usage to harness-state/cost-log.json with the same schema.",
-        "No POSIX tool names (jq, grep, sed, awk, bash, wsl) appear as bare commands in any of the three files (string literals & comments OK).",
+        "No forbidden POSIX tool names (bash, sh, wsl, sed, awk, grep, find, realpath, mktemp, dirname, basename, tr, cut, xargs) appear as bare commands in any of the three files (string literals & comments OK). Calls to jq, git, gh, claude, node, npm, bats are allowed.",
         "Dot-source pattern: `. (Join-Path $PSScriptRoot 'utils.ps1')` works from sibling scripts (verifiable by a small inline test the generator runs)."
       ],
       "regressionConcerns": []
@@ -46,7 +46,7 @@
         "evaluator.ps1 writes harness-state/sprints/sprint-NN/eval-report.json with the same schema (status, blockers, regressionResults, summary).",
         "contract.ps1 implements the propose↔review loop with maxContractRounds (read from config.json), writing sprint-contract.json with the same fields the .sh produces.",
         "Same agent prompts are loaded from harness/prompts/* — these prompt files are reused unchanged.",
-        "No bare POSIX tool invocations."
+        "No bare invocations of forbidden POSIX tools (bash, sh, wsl, sed, awk, grep, find, realpath, mktemp, dirname, basename, tr, cut, xargs). jq/git/gh/claude/node/npm/bats are permitted."
       ],
       "regressionConcerns": ["sprint-01"]
     },
@@ -67,7 +67,7 @@
         "Same commit messages: 'harness(sprint-NN): ...', 'harness(eval): sprint-NN result', 'harness(plan): product spec and sprint plan', 'harness(contract): sprint-NN agreed'.",
         "On success, exits 0 after either creating a PR (if `gh` available) or writing harness-state/pr-body.md.",
         "--help prints a usage summary mirroring orchestrate.sh's `usage()` text and exits 0.",
-        "No bare POSIX tool invocations."
+        "No bare invocations of forbidden POSIX tools (bash, sh, wsl, sed, awk, grep, find, realpath, mktemp, dirname, basename, tr, cut, xargs). jq/git/gh/claude/node/npm/bats are permitted."
       ],
       "regressionConcerns": ["sprint-01", "sprint-02"]
     },
@@ -87,7 +87,7 @@
         "tests/layer2/smoke-test.ps1 performs the same end-to-end smoke flow as smoke-test.sh: invokes orchestrate.ps1 with a fixed mini-prompt, asserts harness-state/ contents, exits 0/non-zero matching the .sh.",
         "tests/layer3/meta-test.ps1 reproduces the meta self-test: harness builds its own test, asserts artifacts.",
         "All three exit 0 on `--help` and print usage.",
-        "No bare POSIX tool invocations."
+        "No bare invocations of forbidden POSIX tools (bash, sh, wsl, sed, awk, grep, find, realpath, mktemp, dirname, basename, tr, cut, xargs). jq/git/gh/claude/node/npm/bats are permitted."
       ],
       "regressionConcerns": ["sprint-01", "sprint-02", "sprint-03"]
     }
