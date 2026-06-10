@@ -1,0 +1,118 @@
+{
+  "sprintNumber": 4,
+  "sprintId": "sprint-04",
+  "overallResult": "PASS",
+  "passCount": 13,
+  "failCount": 0,
+  "blockers": [],
+  "criteriaResults": [
+    {
+      "id": "A1",
+      "description": "All three .ps1 files exist beside their .sh counterparts",
+      "result": "PASS",
+      "evidence": "tests/run-all.ps1, tests/layer2/smoke-test.ps1, tests/layer3/meta-test.ps1 all present in expected locations next to corresponding .sh files."
+    },
+    {
+      "id": "A2",
+      "description": "Each .ps1 parses cleanly via [Parser]::ParseFile",
+      "result": "PASS",
+      "evidence": "Ran [System.Management.Automation.Language.Parser]::ParseFile on all three; zero parse errors. Output: 'OK   tests/run-all.ps1' / 'OK   tests/layer2/smoke-test.ps1' / 'OK   tests/layer3/meta-test.ps1'."
+    },
+    {
+      "id": "B3",
+      "description": "Each file starts with #Requires -Version 5.1, Set-StrictMode -Version 3.0, $ErrorActionPreference = 'Stop'",
+      "result": "PASS",
+      "evidence": "head -3 of each file shows the exact three required header lines in order."
+    },
+    {
+      "id": "C4",
+      "description": "AST scan finds no bare invocations of forbidden POSIX tools (bash|sh|wsl|sed|awk|grep|find|realpath|mktemp|dirname|basename|tr|cut|xargs)",
+      "result": "PASS",
+      "evidence": "AST CommandAst scan over all three files returned 'AST scan clean'. Allowed externals (jq, git, bats, powershell) are used; no forbidden tokens appear as bare commands."
+    },
+    {
+      "id": "D5",
+      "description": "CLI parity: each .ps1 accepts the same flags/positionals as its .sh, plus optional --help",
+      "result": "PASS",
+      "evidence": "run-all.sh accepts positional layer (layer1|layer2|layer3|all|--layer1-only); run-all.ps1 handles all five plus --help/-h/-?. smoke-test.sh and meta-test.sh accept no args; .ps1 versions accept only the new --help flag. Unknown layer to run-all.ps1 exits 1 (verified)."
+    },
+    {
+      "id": "D6",
+      "description": "--help on each .ps1 exits 0 and prints usage",
+      "result": "PASS",
+      "evidence": "Invoked each with --help. All three printed a usage block and reported EXIT=0."
+    },
+    {
+      "id": "E7",
+      "description": "run-all.ps1 default is layer1; bats invoked on tests/layer1/*.bats; layer2/3 dispatch to .ps1 (not .sh); aggregated exit codes propagate",
+      "result": "PASS",
+      "evidence": "$Layer = 'layer1' default at line 18. Layer 1 builds $batsFiles from Get-ChildItem -Filter '*.bats' and calls 'bats @batsFiles' (line 80). Layer 2 dispatches to tests/layer2/smoke-test.ps1 (line 91-92). Layer 3 dispatches to tests/layer3/meta-test.ps1 (line 103-104). 'all' short-circuits on first non-zero rc. Verified runtime: 'unknown-layer' -> EXIT=1; 'layer2' without guard -> skip + EXIT=0; 'layer3' without guard -> skip + EXIT=0."
+    },
+    {
+      "id": "E8",
+      "description": "smoke-test.ps1 honors HARNESS_SMOKE_TEST=1 guard, mirrors prompt, has equivalent assertion list, cleans up on exit",
+      "result": "PASS",
+      "evidence": "Guard at line 36-39: prints message and exits 0 when env var unset (verified runtime). Prompt mirrors .sh (PowerShell variant of the hello-world CLI). All 9 .sh assertions are reproduced 1:1: product-spec >100 bytes, sprint-plan.json valid, eval-report.json exists, PASS in eval, harness git tag, harness branch, completedSprints, cost-log.json, progress.md contains PASS. Cleanup via try/catch + trap that prints 'Smoke test dir: ... (not cleaned for inspection)' on success and failure."
+    },
+    {
+      "id": "E9",
+      "description": "meta-test.ps1 honors HARNESS_META_TEST=1 guard; assertions mirror .sh; prompt updated to PowerShell artifacts and consistent with harness",
+      "result": "PASS",
+      "evidence": "Guard at line 41-45: prints message and exits 0 when env var unset (verified runtime). Assertions mirror .sh (sprint cycle, sprint passed, test files created, info-only count, generated tests run/exist). Prompt references harness/lib/utils.ps1 with the actual function names (ConvertTo-Slug, Format-SprintNumber, Get-SprintDirectory, Read-JsonField, Test-FileNonEmpty, Initialize-HarnessState, Update-Handoff, Update-RegressionRegistry — all confirmed defined in utils.ps1) and meta-tests/run.ps1 entry point. Hook references remain .sh (hooks are out-of-scope per spec). Generator log section 'Behavioural nuances handled -> Meta test prompt' documents the change. .ps1 also gracefully handles meta-tests/run.sh fallback without invoking bash."
+    },
+    {
+      "id": "F10",
+      "description": "Sprint 01-03 deliverables (harness/lib/*.ps1, harness/orchestrate.ps1) untouched by sprint-04",
+      "result": "PASS",
+      "evidence": "git diff 8b46959..HEAD (sprint-03 merge..tip) -- harness/lib/ harness/orchestrate.ps1 returns empty. git status shows only the three new untracked .ps1 files plus harness-state."
+    },
+    {
+      "id": "G11",
+      "description": ".sh files unchanged",
+      "result": "PASS",
+      "evidence": "git diff 8b46959..HEAD -- 'tests/*.sh' 'tests/**/*.sh' returns empty. No tracked .sh file was modified."
+    },
+    {
+      "id": "H12",
+      "description": "No new .ps1 in harness/hooks/",
+      "result": "PASS",
+      "evidence": "ls harness/hooks/*.ps1 returns 'No such file or directory'. Only the four original .sh hooks remain in harness/hooks/."
+    },
+    {
+      "id": "I13",
+      "description": "Whole-port coverage: 11 .ps1 at in-scope locations matches 11 .sh",
+      "result": "PASS",
+      "evidence": "Counted: harness/orchestrate.ps1 + 7 harness/lib/*.ps1 + tests/run-all.ps1 + tests/layer2/smoke-test.ps1 + tests/layer3/meta-test.ps1 = 11. Equivalent .sh enumeration also = 11."
+    }
+  ],
+  "regressionResults": [
+    {
+      "sprint": "sprint-01",
+      "result": "PASS",
+      "evidence": "git diff 8b46959..HEAD -- harness/lib/utils.ps1 harness/lib/git.ps1 harness/lib/invoke.ps1 returns empty; sprint-01 deliverables unmodified."
+    },
+    {
+      "sprint": "sprint-02",
+      "result": "PASS",
+      "evidence": "git diff 8b46959..HEAD -- harness/lib/contract.ps1 harness/lib/planner.ps1 harness/lib/generator.ps1 harness/lib/evaluator.ps1 returns empty; sprint-02 deliverables unmodified."
+    },
+    {
+      "sprint": "sprint-03",
+      "result": "PASS",
+      "evidence": "git diff 8b46959..HEAD -- harness/orchestrate.ps1 returns empty; sprint-03 deliverable unmodified."
+    }
+  ],
+  "holisticScores": {
+    "correctness": 9,
+    "robustness": 8,
+    "codeQuality": 9,
+    "fidelityToSh": 9
+  },
+  "notes": [
+    "Behavioral parity is high. The three traps called out in instructions (run-all secretly calling .sh, guard inversion, shorter assertion list, prompt asking for .sh artifacts the harness can't produce) are all avoided.",
+    "smoke-test.ps1 prompt was localized to a PowerShell hello-world (.sh asks for bash). This is appropriate for the Windows port and remains a trivial scope project; not a parity issue.",
+    "smoke-test.ps1 omits the gtimeout/timeout 1800 wrapper (the .sh used it conditionally on macOS/Linux). Reasonable since native Windows lacks an equivalent CLI; an enhancement could add Start-Process -Wait with a job timeout but is not required by the contract.",
+    "meta-test.ps1 prompt restricts file-count search to meta-tests/ (the .sh's -o operator unintentionally globalized one branch); .ps1 is arguably more correct and not a regression.",
+    "meta-test.ps1 also adds a 'test-*.ps1' filename pattern alongside the .sh's '*.bats'/'test-*.sh' patterns -- accommodates ported suites without weakening assertions."
+  ]
+}
