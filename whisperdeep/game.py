@@ -18,11 +18,24 @@ subscribes to the bus. The Game publishes ``run_started`` on construction
 and ``descended`` whenever the player descends a staircase. When
 ``whisperer=False`` the Game is unchanged from Sprint 2 (no bus, no
 whisperer, no events).
+
+Sprint 8 adds two more event sources to the Game's lifecycle:
+
+* :meth:`Game.observe_kind` — a public hook that publishes a ``first_sight``
+  event (idempotent per kind for the run). Tests and (future) higher-fidelity
+  monster/item systems can call this to trigger the first-sight naming
+  pipeline.
+* Room-entered detection on :meth:`Game.from_seed`, :meth:`Game.descend`,
+  and :meth:`Game.try_move`. The Game publishes a ``room_entered`` event
+  whenever the player crosses into a room they haven't been in this run.
+  Per-(floor, room_id) dedupe is enforced by the Whisperer; the Game also
+  short-circuits the publish if it can recognize a re-entry locally so
+  identical events aren't even raised.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Optional, Set, Tuple
 
 from .entity import Player
 from .events import Event, EventBus, EventType
@@ -50,6 +63,14 @@ class Game:
         # Sprint 7: optional event bus + whisperer.
         self.events: Optional[EventBus] = events
         self.whisperer = whisperer
+        # Sprint 8: per-run dedupe of (floor, room_id) for Game-side
+        # short-circuiting BEFORE publishing redundant events. The
+        # Whisperer also dedupes; this is just a courtesy / cheaper path.
+        self._rooms_seen_local: Set[Tuple[int, int]] = set()
+        # Per-run dedupe of observed kinds for first_sight idempotency at
+        # the Game layer. The Whisperer also dedupes; either layer alone
+        # suffices, but keeping both honest is cheap.
+        self._kinds_observed: Set[str] = set()
 
     # ---- factories -------------------------------------------------------
     @classmethod
@@ -97,6 +118,9 @@ class Game:
                 floor=0,
             )
         )
+        # Sprint 8: also publish a room_entered for the spawn room so the
+        # atmospheric prose pipeline fires on the very first frame.
+        game._maybe_publish_room_entered(turn=0)
         return game
 
     # ---- accessors -------------------------------------------------------
@@ -131,6 +155,8 @@ class Game:
         self.player.x = nx
         self.player.y = ny
         self.turns += 1
+        # Sprint 8: detect room transitions and publish room_entered.
+        self._maybe_publish_room_entered(turn=self.turns)
         return True
 
     def descend(self) -> bool:
@@ -163,6 +189,9 @@ class Game:
                     floor=self.current_floor_index,
                 )
             )
+        # Sprint 8: also publish room_entered for the landing room on the
+        # new floor.
+        self._maybe_publish_room_entered(turn=self.turns)
         return True
 
     def ascend(self) -> bool:
@@ -179,6 +208,10 @@ class Game:
         if target is None:
             target = self._choose_spawn(new_floor)
         self.player.x, self.player.y = target
+        # Sprint 8: ascend also fires room_entered (on the room the player
+        # arrives in). This is symmetric with descend; tests don't require
+        # it but it keeps behavior consistent.
+        self._maybe_publish_room_entered(turn=self.turns)
         return True
 
     # ---- helpers ---------------------------------------------------------
@@ -188,3 +221,76 @@ class Game:
             raise ValueError(f"({x},{y}) is not walkable on floor {self.current_floor_index}")
         self.player.x = x
         self.player.y = y
+        # Sprint 8: a teleport may put the player in a new room, so check.
+        self._maybe_publish_room_entered(turn=self.turns)
+
+    # ---- Sprint 8: room detection + observe_kind hook -------------------
+    def _current_room_id(self) -> Optional[int]:
+        """Return the integer index of the room the player is currently in.
+
+        Uses :class:`Floor.rooms` and :meth:`Room.contains`. Returns None
+        when the player is in a corridor / on a stair tile that no room
+        contains.
+        """
+        floor = self.floor
+        rooms = getattr(floor, "rooms", None) or []
+        for idx, r in enumerate(rooms):
+            if r.contains(self.player.x, self.player.y):
+                return idx
+        return None
+
+    def _maybe_publish_room_entered(self, *, turn: int) -> None:
+        """Publish a ``room_entered`` event for the player's current room.
+
+        Skips when the bus is not wired, when the player is not currently
+        inside any room (corridor / stair tile), and when the
+        (floor, room_id) pair has already been published this run.
+        """
+        if self.events is None:
+            return
+        room_id = self._current_room_id()
+        if room_id is None:
+            return
+        key = (self.current_floor_index, room_id)
+        if key in self._rooms_seen_local:
+            return
+        self._rooms_seen_local.add(key)
+        self.events.publish(
+            Event(
+                type=EventType.ROOM_ENTERED.value,
+                payload={
+                    "floor": self.current_floor_index,
+                    "room_id": room_id,
+                },
+                turn=turn,
+                floor=self.current_floor_index,
+            )
+        )
+
+    def observe_kind(self, kind: str, category: str = "monster") -> bool:
+        """Publish a ``first_sight`` event for ``kind`` (idempotent).
+
+        Returns True if a new first_sight event was published this run for
+        this kind, False if the kind was already seen (no-op) or if the
+        Game has no Whisperer wired (also a no-op).
+
+        ``category`` should be ``"monster"`` or ``"item"``; other values
+        are accepted and forwarded verbatim to the event payload.
+        """
+        if not isinstance(kind, str) or not kind:
+            return False
+        if self.events is None:
+            # Whisperer disabled; the hook is a documented no-op.
+            return False
+        if kind in self._kinds_observed:
+            return False
+        self._kinds_observed.add(kind)
+        self.events.publish(
+            Event(
+                type=EventType.FIRST_SIGHT.value,
+                payload={"kind": kind, "category": category},
+                turn=self.turns,
+                floor=self.current_floor_index,
+            )
+        )
+        return True

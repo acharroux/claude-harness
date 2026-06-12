@@ -6,13 +6,20 @@ Usage:
     python -m whisperdeep --seed 7 --headless --whisperer offline
     python -m whisperdeep --seed 7 --headless --no-whisperer
     python -m whisperdeep --seed 7 --headless --dump-whispers w.json
+    python -m whisperdeep --seed 7 --headless --no-panel
+    python -m whisperdeep --seed 7 --headless --panel-width 40
 
 Sprint 7 plumbing: ``--whisperer`` chooses the adapter (default ``offline``),
 ``--no-whisperer`` disables the whisperer entirely, and ``--dump-whispers
-PATH`` writes the whisper log to disk as JSON. Whispers are NOT rendered in
-the dungeon frame in this sprint; the only stdout difference between a
-default run and a ``--no-whisperer`` run is a single banner line of the form
-``# whisperer: <adapter>`` printed before the frame.
+PATH`` writes the whisper log to disk as JSON.
+
+Sprint 8 panel: by default ``--headless`` now prints the dungeon grid
+WITH a whisper panel composited to the right of the grid (two-space
+gutter). ``--no-panel`` suppresses the panel without disabling the
+whisperer (whispers still accumulate in the log and ``--dump-whispers``
+keeps working). ``--panel-width N`` sets the panel column width
+(default ``30``). ``--no-whisperer`` remains the strongest off-switch:
+no bus, no whispers, no panel.
 """
 from __future__ import annotations
 
@@ -22,7 +29,8 @@ import sys
 from typing import List, Optional
 
 from .game import Game
-from .render import render_frame
+from .panel import DEFAULT_PANEL_WIDTH
+from .render import render_frame, render_frame_with_whispers
 from .world import World
 
 
@@ -115,6 +123,28 @@ def build_parser() -> argparse.ArgumentParser:
             "deterministic snapshot tests."
         ),
     )
+    # Sprint 8 panel flags
+    p.add_argument(
+        "--no-panel",
+        dest="no_panel",
+        action="store_true",
+        help=(
+            "Suppress the whisper panel in the rendered frame. The "
+            "Whisperer still runs and whispers still accumulate in the "
+            "log (--dump-whispers continues to work); only the on-screen "
+            "panel is hidden. Use --no-whisperer to disable the Whisperer "
+            "entirely."
+        ),
+    )
+    p.add_argument(
+        "--panel-width",
+        type=int,
+        default=DEFAULT_PANEL_WIDTH,
+        help=(
+            f"Width of the whisper panel in columns "
+            f"(default: {DEFAULT_PANEL_WIDTH})."
+        ),
+    )
     return p
 
 
@@ -153,12 +183,18 @@ def _dump_whispers_if_requested(game: Game, path: Optional[str]) -> None:
 
 def run_headless(args: argparse.Namespace, out=sys.stdout) -> int:
     game = make_game(args)
-    # Adapter banner: print only when the Whisperer is active. C15 requires
-    # the dungeon glyph rows to be byte-identical to a pre-Whisperer run
-    # modulo this single banner line.
+    # Adapter banner: print only when the Whisperer is active.
     if not args.no_whisperer:
         out.write(f"# whisperer: {args.whisperer}\n")
-    out.write(render_frame(game))
+    # Sprint 8: default headless renders the composite frame (grid + panel)
+    # so players can read the Whisperer. ``--no-panel`` and
+    # ``--no-whisperer`` both fall back to the original Sprint-2 grid.
+    if args.no_whisperer or args.no_panel:
+        out.write(render_frame(game))
+    else:
+        out.write(
+            render_frame_with_whispers(game, panel_width=args.panel_width)
+        )
     out.write("\n")
     _dump_whispers_if_requested(game, args.dump_whispers)
     return 0
@@ -174,7 +210,10 @@ def run_interactive(args: argparse.Namespace) -> int:  # pragma: no cover
     }
     if not args.no_whisperer:
         print(f"# whisperer: {args.whisperer}")
-    print(render_frame(game))
+    if args.no_whisperer or args.no_panel:
+        print(render_frame(game))
+    else:
+        print(render_frame_with_whispers(game, panel_width=args.panel_width))
     print("[Whisperdeep] hjkl/yubn = move, > descend, < ascend, q quit")
     while True:
         try:
@@ -199,7 +238,10 @@ def run_interactive(args: argparse.Namespace) -> int:  # pragma: no cover
         else:
             print(f"unknown command: {cmd!r}")
             continue
-        print(render_frame(game))
+        if args.no_whisperer or args.no_panel:
+            print(render_frame(game))
+        else:
+            print(render_frame_with_whispers(game, panel_width=args.panel_width))
 
 
 def main(argv: Optional[List[str]] = None) -> int:
