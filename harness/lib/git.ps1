@@ -15,8 +15,14 @@ $ErrorActionPreference = 'Stop'
 # Returns: [pscustomobject]@{ Output = string; ExitCode = int }
 function Invoke-GitCapture {
     param([Parameter(Mandatory)][string[]]$Args)
+    # PS 5.1: native-command stderr becomes a terminating NativeCommandError under
+    # $ErrorActionPreference=Stop even with 2>$null. Temporarily lower the pref so
+    # stderr is silently discarded, then restore it. $LASTEXITCODE is still set correctly.
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'SilentlyContinue'
     $out = & git @Args 2>$null
     $code = $LASTEXITCODE
+    $ErrorActionPreference = $prev
     if ($null -eq $out) { $out = '' }
     if ($out -is [array]) { $out = ($out -join "`n") }
     return [pscustomobject]@{ Output = "$out"; ExitCode = $code }
