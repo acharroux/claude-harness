@@ -152,7 +152,10 @@ def test_c9_frame_renderer_places_player_glyph_exactly_once():
 # ---------- C10: glyph legend -----------------------------------------------
 
 def test_c10_frame_uses_documented_glyph_set_only():
-    game = Game.from_seed(seed=1)
+    # Sprint 11: pin the archetype to 'crypt' (which preserves Sprint 1/2
+    # defaults '#', '.', '+') so the legacy "documented glyph set" test
+    # remains valid after archetypes were introduced.
+    game = Game.from_seed(seed=1, whisperer=False, forced_archetype="crypt")
     frame = render_frame(game)
     allowed = {"#", ".", "+", "<", ">", "@"}
     chars = set(frame) - {"\n"}

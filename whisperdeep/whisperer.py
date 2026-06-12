@@ -84,6 +84,10 @@ class Whisper:
     fallback: bool
     tokens: int = 0
     error_reason: Optional[str] = None
+    # Sprint 11: thematic archetype id of the source floor at publish time.
+    # None for floors without an archetype (defensive); otherwise one of
+    # the registered ids (e.g., 'crypt', 'mushroom_forest', ...).
+    archetype: Optional[str] = None
 
     def to_dict(self) -> Dict[str, object]:
         return asdict(self)
@@ -269,6 +273,16 @@ class Whisperer:
         seen.add(coalesce_key)
         self._turn_counts[turn] = count + 1
 
+        # Sprint 11: pluck the archetype id off the event payload (set by
+        # the Game when the floor has an archetype). Used both for
+        # archetype-aware prose selection and to tag the produced Whisper.
+        archetype_id: Optional[str] = None
+        payload = event.payload or {}
+        if hasattr(payload, "get"):
+            raw = payload.get("archetype")
+            if isinstance(raw, str) and raw:
+                archetype_id = raw
+
         # Sprint 8: for first_sight, mint a name BEFORE the adapter call so
         # the prompt and the substitution have access to it.
         minted_name: Optional[str] = None
@@ -276,7 +290,9 @@ class Whisperer:
             minted_name = self._ensure_name_for_first_sight(event)
 
         # Choose adapter and fallback flag.
-        text, tokens, adapter_name, fallback, error_reason = self._produce(event)
+        text, tokens, adapter_name, fallback, error_reason = self._produce(
+            event, archetype=archetype_id
+        )
 
         # Sprint 8: substitute the minted name into first_sight prose.
         if event.type == "first_sight" and minted_name:
@@ -291,6 +307,7 @@ class Whisperer:
             fallback=fallback,
             tokens=tokens,
             error_reason=error_reason,
+            archetype=archetype_id,
         )
         self.whispers.append(whisper)
 
@@ -337,7 +354,7 @@ class Whisperer:
             out = out.replace(ph, name)
         return out
 
-    def _produce(self, event: Event):
+    def _produce(self, event: Event, *, archetype: Optional[str] = None):
         """Run the primary adapter, falling back on failure or budget exhaustion.
 
         Returns ``(text, tokens, adapter_name, fallback, error_reason)``.
@@ -346,16 +363,16 @@ class Whisperer:
         # Budget check FIRST: if already exhausted, go straight to fallback.
         if self.budget_exhausted or self.tokens_used >= self.budget:
             self.budget_exhausted = True
-            return self._call_fallback(prompt, event, error_reason=None)
+            return self._call_fallback(prompt, event, error_reason=None, archetype=archetype)
 
         try:
-            result = self.adapter.complete(
-                prompt, max_tokens=64, event_type=event.type
+            result = self._adapter_complete(
+                self.adapter, prompt, event_type=event.type, archetype=archetype
             )
         except Exception as exc:  # noqa: BLE001 -- documented resilience
             self.failure_count += 1
             reason = f"{type(exc).__name__}: {exc}"
-            return self._call_fallback(prompt, event, error_reason=reason)
+            return self._call_fallback(prompt, event, error_reason=reason, archetype=archetype)
 
         # Successful primary call. Account tokens.
         self.tokens_used += int(result.tokens or 0)
@@ -368,10 +385,13 @@ class Whisperer:
         text = result.text if result.text else ""
         return text, int(result.tokens or 0), result.adapter_name, False, None
 
-    def _call_fallback(self, prompt: str, event: Event, *, error_reason: Optional[str]):
+    def _call_fallback(self, prompt: str, event: Event, *, error_reason: Optional[str], archetype: Optional[str] = None):
         try:
-            result = self.fallback_adapter.complete(
-                prompt, max_tokens=64, event_type=event.type
+            result = self._adapter_complete(
+                self.fallback_adapter,
+                prompt,
+                event_type=event.type,
+                archetype=archetype,
             )
             text = result.text or ""
             adapter_name = result.adapter_name
@@ -384,6 +404,30 @@ class Whisperer:
             error_reason = error_reason or f"{type(exc).__name__}: {exc}"
         # Fallback whispers do NOT consume the budget.
         return text, 0, adapter_name, True, error_reason
+
+    @staticmethod
+    def _adapter_complete(
+        adapter: LLMAdapter,
+        prompt: str,
+        *,
+        event_type: Optional[str],
+        archetype: Optional[str],
+    ) -> AdapterResult:
+        """Invoke ``adapter.complete`` while staying compatible with adapters
+        whose ``complete`` predates the Sprint-11 ``archetype`` keyword.
+        """
+        try:
+            return adapter.complete(
+                prompt,
+                max_tokens=64,
+                event_type=event_type,
+                archetype=archetype,
+            )
+        except TypeError:
+            # Adapter is older / third-party; retry without the keyword.
+            return adapter.complete(
+                prompt, max_tokens=64, event_type=event_type
+            )
 
     @staticmethod
     def _build_prompt(event: Event) -> str:

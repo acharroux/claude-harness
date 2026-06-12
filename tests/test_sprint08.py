@@ -256,8 +256,10 @@ def test_cli_default_headless_shows_panel_with_real_whisper():
 
 
 def test_render_frame_byte_identical_with_or_without_whisperer():
-    g_on = Game.from_seed(seed=1, whisperer=True)
-    g_off = Game.from_seed(seed=1, whisperer=False)
+    # Sprint 11: pin the archetype to 'crypt' (defaults preserved) so this
+    # Sprint-8 byte-identity test still observes the documented glyphs.
+    g_on = Game.from_seed(seed=1, whisperer=True, forced_archetype="crypt")
+    g_off = Game.from_seed(seed=1, whisperer=False, forced_archetype="crypt")
     a = render_frame(g_on)
     b = render_frame(g_off)
     assert a == b, "render_frame must be unaffected by whisperer state"

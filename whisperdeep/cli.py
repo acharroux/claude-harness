@@ -32,6 +32,12 @@ from .game import Game
 from .panel import DEFAULT_PANEL_WIDTH
 from .render import render_frame, render_frame_with_whispers
 from .world import World
+from .archetypes import (
+    ARCHETYPES,
+    ARCHETYPE_BY_ID,
+    archetype_summary_line,
+    get_archetype,
+)
 
 
 WHISPERER_CHOICES = ("offline", "null", "anthropic", "openai")
@@ -193,11 +199,34 @@ def build_parser() -> argparse.ArgumentParser:
             "passed. Mainly useful for tests."
         ),
     )
+    # Sprint 11 archetype flags
+    p.add_argument(
+        "--archetype",
+        metavar="ID",
+        default=None,
+        help=(
+            "Force a single archetype across ALL floors of the run "
+            "(overrides the seed-derived assignment). Useful for "
+            "screenshots and tests. Pass --list-archetypes to see the "
+            "registered ids."
+        ),
+    )
+    p.add_argument(
+        "--list-archetypes",
+        dest="list_archetypes",
+        action="store_true",
+        help=(
+            "Print one line per registered archetype (id, name, glyph "
+            "overrides, monster pool size) and exit 0 without starting "
+            "a run."
+        ),
+    )
     return p
 
 
 def make_game(args: argparse.Namespace) -> Game:
     """Build a Game honoring the CLI flags."""
+    forced = getattr(args, "archetype", None)
     if args.no_whisperer:
         return Game.from_seed(
             seed=args.seed,
@@ -205,6 +234,7 @@ def make_game(args: argparse.Namespace) -> Game:
             width=args.width,
             height=args.height,
             whisperer=False,
+            forced_archetype=forced,
         )
     return Game.from_seed(
         seed=args.seed,
@@ -215,6 +245,7 @@ def make_game(args: argparse.Namespace) -> Game:
         adapter=args.whisperer,
         budget=args.whisper_budget,
         model=args.whisperer_model,
+        forced_archetype=forced,
     )
 
 
@@ -322,8 +353,29 @@ def run_interactive(args: argparse.Namespace) -> int:  # pragma: no cover
             print(render_frame_with_whispers(game, panel_width=args.panel_width))
 
 
+def _print_archetypes(out=sys.stdout) -> int:
+    """Print one summary line per registered archetype and return 0."""
+    for arche in ARCHETYPES:
+        out.write(archetype_summary_line(arche))
+        out.write("\n")
+    return 0
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     args = build_parser().parse_args(argv)
+    # Sprint 11: --list-archetypes is a one-shot info command.
+    if getattr(args, "list_archetypes", False):
+        return _print_archetypes()
+    # Validate --archetype up front so a bad id fails before any work.
+    forced = getattr(args, "archetype", None)
+    if forced is not None and forced not in ARCHETYPE_BY_ID:
+        valid = ", ".join(sorted(ARCHETYPE_BY_ID))
+        sys.stderr.write(
+            f"error: unknown archetype id: {forced!r}. "
+            f"Valid ids: {valid}. "
+            f"Run with --list-archetypes for a summary.\n"
+        )
+        return 2
     if args.headless:
         return run_headless(args)
     return run_interactive(args)

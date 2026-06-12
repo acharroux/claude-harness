@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional
 
+from .archetypes import DungeonArchetype, assign_archetype, get_archetype
 from .floor import Floor
 from .generator import DungeonGenerator
 
@@ -38,6 +39,7 @@ class World:
         width: int = 80,
         height: int = 40,
         eager: bool = False,
+        forced_archetype: Optional[str] = None,
     ) -> None:
         if num_floors < 1:
             raise ValueError("num_floors must be >= 1")
@@ -45,6 +47,12 @@ class World:
         self.num_floors = num_floors
         self.width = width
         self.height = height
+        # Sprint 11: when set, every floor gets this archetype regardless of
+        # the seed-derived assignment. Driven by ``--archetype ID`` from the
+        # CLI; resolved up front so a bad id raises immediately.
+        self._forced_archetype: Optional[DungeonArchetype] = (
+            get_archetype(forced_archetype) if forced_archetype else None
+        )
         self._floors: Dict[int, Floor] = {}
         if eager:
             for i in range(num_floors):
@@ -68,7 +76,13 @@ class World:
                 place_upstairs=place_upstairs,
                 place_downstairs=place_downstairs,
             )
-            self._floors[index] = gen.generate()
+            floor = gen.generate()
+            # Sprint 11: assign the archetype BEFORE returning to callers.
+            if self._forced_archetype is not None:
+                floor.archetype = self._forced_archetype
+            else:
+                floor.archetype = assign_archetype(self.master_seed, index)
+            self._floors[index] = floor
         return self._floors[index]
 
     def is_first(self, index: int) -> bool:

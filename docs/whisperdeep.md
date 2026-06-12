@@ -6,6 +6,31 @@ This is the game built sprint-by-sprint inside this repository by the
 Planner–Generator–Evaluator harness. The harness tooling itself lives in
 `harness/` and is documented in [the top-level README](../README.md).
 
+> **Status — Sprint 11: Themed Archetypes & Palettes.** The dungeon now
+> has a **soul**. Each floor is assigned a thematic *archetype*
+> deterministically from `(master_seed, floor_index)`: at minimum
+> **crypt**, **flooded_sewer**, **mushroom_forest**, **bone_library**,
+> plus a rare/secret archetype (**whisperhall**). Each archetype carries
+> its own glyph variant table (e.g., crypt walls render as `#`, sewer
+> floors as `,`, mushroom forest walls as `%`, bone library walls as
+> `:`), a structured palette (256-color xterm indices and/or `#rrggbb`
+> hex strings), an archetype-keyed prose tag the Whisperer's offline
+> pool leans into, and a metadata-only monster pool that Sprint 5 will
+> eventually consume. The TileKind enum is unchanged: variant glyphs
+> preserve walkability semantics. The reserved player (`@`), upstairs
+> (`<`), and downstairs (`>`) glyphs are never overridden. Determinism
+> is preserved: same seed -> same archetype assignment -> same rendered
+> frame and same whispers. Two new CLI flags ship: `--archetype ID`
+> forces a single archetype across all floors of the run (used for
+> screenshots and tests), and `--list-archetypes` prints a one-line
+> summary of every registered archetype and exits 0. Each whisper now
+> carries the archetype id of its source floor in its dump (`dump()`,
+> `--dump-whispers`). ANSI colour output is **opt-in** in Sprint 11 via
+> a new `colorize_frame(game)` helper; the default `render_frame` /
+> `render_frame_with_whispers` continue to emit zero ESC characters so
+> Sprint-2 / Sprint-7 / Sprint-10 byte-determinism contracts remain
+> intact. Full colour wiring lands in Sprint 12.
+>
 > **Status — Sprint 10: Chronicle Generator.** Every run can now produce
 > a self-contained Markdown **chronicle** that summarises the run as a
 > small piece of dark-fantasy prose. A chronicle has four sections, in
@@ -439,6 +464,104 @@ the player's actions.
   territory.
 * Director-mode procgen nudges and persistent meta-memory of named
   NPCs across runs. Sprint 9 territory.
+
+## Archetypes & Palettes (Sprint 11)
+
+Sprint 11 adds **themed archetypes** to every floor. Each floor in the
+World is assigned a `DungeonArchetype` deterministically from the master
+seed and the floor index, and that archetype contributes:
+
+* a **glyph variant table** (`glyph_overrides: TileKind -> str`) -- swaps
+  the per-cell glyph used by `render_frame` / `render_floor` while
+  keeping the underlying `TileKind` unchanged. Walkability is
+  preserved: a wall-variant is still `walkable=False`, a floor-variant
+  still `walkable=True`. The reserved glyphs `@` (player), `<`
+  (upstairs), `>` (downstairs) are NEVER overridden.
+* a **palette descriptor** (`palette: dict[str, int|str]`) -- a mapping
+  with at minimum the keys `wall_fg`, `floor_fg`, `door_fg`,
+  `upstairs_fg`, `downstairs_fg`, `player_fg`. Values are either an
+  integer in `[0, 255]` (xterm 256-color index) **or** a hex string
+  matching `^#[0-9a-fA-F]{6}$`. Optional extra keys `panel_fg` and
+  `panel_bg` are included on the built-ins.
+* a **prose tag** (`prose_tag: str`) -- the Whisperer's offline prose
+  pool gains keys of the form `<event_type>.<archetype_id>` (e.g.
+  `room_entered.crypt`, `first_sight.mushroom_forest`). When an event's
+  payload carries an `archetype` field, the offline adapter prefers
+  the tagged sub-pool and falls back to the generic key. At minimum
+  every archetype provides 4 distinct entries for `room_entered` and
+  4 for `first_sight`.
+* a **monster pool tag** (`monster_pool: list[str]`) -- a metadata-only
+  list of monster-kind strings flavour-appropriate to the archetype.
+  Sprint 11 does **not** spawn monsters; this is a stub that Sprint 5
+  ('Monsters & AI') will consume.
+
+### Registered archetypes
+
+| id                 | name                       | wall | floor | door | prose tag         | monster pool size | rare? |
+|--------------------|----------------------------|------|-------|------|-------------------|-------------------|-------|
+| `crypt`            | Crypt of Hollow Saints     | `#`  | `.`   | `+`  | `crypt`           | 4                 | no    |
+| `flooded_sewer`    | The Flooded Sewer          | `=`  | `,`   | `/`  | `flooded_sewer`   | 4                 | no    |
+| `mushroom_forest`  | The Mushroom Forest        | `%`  | `"`   | `+`  | `mushroom_forest` | 4                 | no    |
+| `bone_library`     | The Bone Library           | `:`  | `.`   | `I`  | `bone_library`    | 4                 | no    |
+| `whisperhall`      | The Whisperhall (rare)     | `&`  | `` ` ``| `\|` | `whisperhall`     | 4                 | yes   |
+
+(Note: `crypt` deliberately keeps the Sprint-1/2 default wall/floor/door
+glyphs so existing snapshot tests remain meaningful when pinned to it
+via `--archetype crypt` or `forced_archetype="crypt"`.)
+
+### Determinism
+
+`assign_archetype(master_seed, floor_index)` is a pure SHA-256-based
+weighted draw over the registry. The same `(master_seed, floor_index)`
+pair always returns the same `DungeonArchetype` instance. Across a
+small sweep of seeds and floors, all five archetypes are reachable and
+the rare archetype shows up at least once.
+
+### CLI flags
+
+* `--archetype ID` — force a single archetype across **all floors** of
+  the run, overriding the seed-derived assignment. Useful for
+  screenshots and tests. Run with an unknown id and the CLI exits with
+  a non-zero status and a clear error pointing at `--list-archetypes`.
+* `--list-archetypes` — print one summary line per registered archetype
+  (id, name, glyph overrides, monster pool size) and exit 0 without
+  starting a run.
+
+### Whisper records carry archetype
+
+Every `Whisper` produced by the Whisperer now carries an `archetype`
+field (the archetype id of the floor that generated the source event,
+or `None` if the floor had no archetype). This shows up in
+`whisperer.dump()` and in the JSON written by `--dump-whispers`.
+
+### ANSI colour is opt-in
+
+`render_frame(game)` and `render_frame_with_whispers(game)` continue to
+emit **zero** ESC characters by default; the Sprint-2 / Sprint-7 /
+Sprint-10 byte-determinism contracts are intact. To get ANSI-coloured
+output, callers use the new helper:
+
+```python
+from whisperdeep.render import colorize_frame
+print(colorize_frame(game))
+```
+
+`colorize_frame` reads the floor's archetype palette and emits a 256-
+color (`\x1b[38;5;<n>m`) or truecolor (`\x1b[38;2;<r>;<g>;<b>m`)
+foreground sequence per cell, resetting after each. Stripping the ANSI
+sequences from `colorize_frame(game)` yields the same plain text as
+`render_frame(game)`. Full panel/colour wiring (curses, per-cell
+backgrounds, themed UI chrome) lands in **Sprint 12**.
+
+### Layering
+
+`whisperdeep/archetypes.py` imports only stdlib + `typing` +
+`whisperdeep.tiles` (for `TileKind`). It does NOT import
+`whisperdeep.llm`, `whisperdeep.render`, `whisperdeep.panel`,
+`whisperdeep.chronicle`, or `whisperdeep.whisperer`. World / Floor /
+Game / CLI may import it. `events.py` and `llm.py` do NOT import
+archetypes; they continue to receive the archetype id as a payload
+field on events, keeping the bus and adapter contracts unchanged.
 
 ## Tests
 

@@ -90,6 +90,7 @@ class LLMAdapter(ABC):
         *,
         max_tokens: int = 64,
         event_type: Optional[str] = None,
+        archetype: Optional[str] = None,
     ) -> AdapterResult:
         """Synchronous single-shot completion."""
         raise NotImplementedError
@@ -115,6 +116,7 @@ class NullAdapter(LLMAdapter):
         *,
         max_tokens: int = 64,
         event_type: Optional[str] = None,
+        archetype: Optional[str] = None,
     ) -> AdapterResult:
         return AdapterResult(text="", tokens=0, adapter_name=self.name, fallback=False)
 
@@ -213,11 +215,22 @@ class OfflineAdapter(LLMAdapter):
         *,
         max_tokens: int = 64,
         event_type: Optional[str] = None,
+        archetype: Optional[str] = None,
     ) -> AdapterResult:
-        if event_type and event_type in self._pool and self._pool[event_type]:
-            entries = self._pool[event_type]
-        else:
-            entries = self._flat_pool
+        # Sprint 11: prefer archetype-tagged sub-pool when both event_type
+        # and archetype are supplied AND a non-empty entry list exists for
+        # the composite key. Falls back to the un-tagged generic pool.
+        entries: Optional[List[str]] = None
+        if event_type and archetype:
+            tagged_key = f"{event_type}.{archetype}"
+            tagged = self._pool.get(tagged_key)
+            if tagged:
+                entries = tagged
+        if entries is None:
+            if event_type and event_type in self._pool and self._pool[event_type]:
+                entries = self._pool[event_type]
+            else:
+                entries = self._flat_pool
         if not entries:
             text = ""
         else:
@@ -253,6 +266,7 @@ class AnthropicAdapter(LLMAdapter):
         *,
         max_tokens: int = 64,
         event_type: Optional[str] = None,
+        archetype: Optional[str] = None,
     ) -> AdapterResult:
         api_key = os.environ.get(self.env_var)
         if not api_key:
@@ -291,6 +305,7 @@ class OpenAIAdapter(LLMAdapter):
         *,
         max_tokens: int = 64,
         event_type: Optional[str] = None,
+        archetype: Optional[str] = None,
     ) -> AdapterResult:
         api_key = os.environ.get(self.env_var)
         if not api_key:

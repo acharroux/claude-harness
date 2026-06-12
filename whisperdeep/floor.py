@@ -11,6 +11,10 @@ from typing import Iterable, List, Optional, Tuple
 from . import tiles
 from .tiles import Tile, TileKind
 
+# Sprint 11: archetypes are pure data; importing here keeps the layering
+# straightforward (Floor depends on tiles + archetypes only).
+from .archetypes import DEFAULT_GLYPHS, DungeonArchetype
+
 
 @dataclass(frozen=True)
 class Room:
@@ -77,6 +81,11 @@ class Floor:
         self.downstairs_pos: Optional[Tuple[int, int]] = None
         # The seed actually used to generate this floor (set by the generator).
         self.seed: Optional[int] = None
+        # Sprint 11: thematic archetype for this floor (set by World.get_floor
+        # before the Floor escapes to callers). Defaults to None for
+        # defensively-constructed Floors; render code degrades to Sprint-1/2
+        # default glyphs in that case.
+        self.archetype: Optional[DungeonArchetype] = None
 
     # ---- bounds & access -------------------------------------------------
     def in_bounds(self, x: int, y: int) -> bool:
@@ -118,6 +127,26 @@ class Floor:
             tuple(self.grid[y][x].kind.value for x in range(self.width))
             for y in range(self.height)
         )
+
+    def snapshot_glyphs(self) -> Tuple[Tuple[str, ...], ...]:
+        """Sprint 11: snapshot rendered glyphs reflecting the archetype.
+
+        Unlike :meth:`snapshot` (which returns the kind name strings),
+        ``snapshot_glyphs`` returns single-character glyph strings honoring
+        any per-archetype overrides. When ``self.archetype`` is None,
+        Sprint-1/2 default glyphs are returned. The shape (rows x cols) is
+        identical to :meth:`snapshot`.
+        """
+        return tuple(
+            tuple(self._glyph_at(x, y) for x in range(self.width))
+            for y in range(self.height)
+        )
+
+    def _glyph_at(self, x: int, y: int) -> str:
+        kind = self.grid[y][x].kind
+        if self.archetype is not None:
+            return self.archetype.glyph_for(kind)
+        return DEFAULT_GLYPHS.get(kind, "?")
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"Floor({self.width}x{self.height}, rooms={len(self.rooms)})"
