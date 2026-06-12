@@ -29,7 +29,14 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
 
 class EventType(str, Enum):
-    """Closed set of canonical Whisperdeep event names."""
+    """Closed set of canonical Whisperdeep event names.
+
+    Sprint 7 introduced the original seven types. Sprint 8 ADDS
+    ``FIRST_SIGHT`` (a player's first encounter with a particular kind of
+    monster or item) and ``ROOM_ENTERED`` (the player walking into a
+    previously-unseen room) in a strictly additive way: the original seven
+    names remain present and unchanged.
+    """
 
     RUN_STARTED = "run_started"
     RUN_ENDED = "run_ended"
@@ -38,6 +45,9 @@ class EventType(str, Enum):
     LOW_HP = "low_hp"
     FOUND_ITEM = "found_item"
     DESCENDED = "descended"
+    # Sprint 8 additions (additive only):
+    FIRST_SIGHT = "first_sight"
+    ROOM_ENTERED = "room_entered"
 
 
 # Tuple form so it's iterable, hashable, and trivially serializable.

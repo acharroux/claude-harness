@@ -26,6 +26,7 @@ concrete real-provider adapter classes.
 """
 from __future__ import annotations
 
+import random as _random
 from dataclasses import asdict, dataclass, field
 from typing import Callable, Dict, List, Optional
 
@@ -35,6 +36,37 @@ from .llm import AdapterResult, LLMAdapter, LLMUnavailable, OfflineAdapter
 
 DEFAULT_PER_TURN_CAP: int = 3
 DEFAULT_BUDGET: int = 10_000
+
+# Sprint 8 placeholder convention for first_sight prose. The pool entries
+# contain ``{name}`` (Python ``str.format`` style); the Whisperer mints a
+# name for the kind on first sight and substitutes it into the produced
+# whisper text. ``${name}`` is also recognized for compatibility.
+FIRST_SIGHT_PLACEHOLDERS: tuple = ("{name}", "${name}")
+
+# A small, deterministic pool of "evocative" name tokens used to mint a
+# short name for an unfamiliar kind when the OfflineAdapter is in use. The
+# Whisperer combines one of these with the kind string (e.g. "skitterer")
+# so the registered name is still recognizably tied to its kind. The pool
+# is intentionally kept short and stable so determinism tests are
+# tractable.
+_NAME_ADJECTIVES: tuple = (
+    "creeping",
+    "hollow",
+    "ashen",
+    "patient",
+    "wretched",
+    "wandering",
+    "rusted",
+    "silent",
+    "feverish",
+    "long-armed",
+    "small",
+    "watchful",
+    "slow",
+    "bone-pale",
+    "dust-eaten",
+    "candle-thin",
+)
 
 
 @dataclass
@@ -116,6 +148,18 @@ class Whisperer:
         # Track most-recent (turn, type) so duplicate same-type spam in a
         # single turn coalesces to one whisper even before per_turn_cap.
         self._seen_turn_types: Dict[int, set] = {}
+        # Sprint 8: per-run registries.
+        # ``names`` maps a kind string (e.g. "goblin") to the name minted
+        # the first time the player saw that kind. Idempotent across the
+        # whole run — re-firing first_sight for the same kind never
+        # mutates this map.
+        self.names: Dict[str, str] = {}
+        # ``_seen_rooms`` records (floor, room_id) pairs that have already
+        # produced a room_entered whisper this run; used to dedupe.
+        self._seen_rooms: set = set()
+        # Deterministic RNG used for name minting; seeded the same way as
+        # the offline adapter so the same seed produces the same names.
+        self._name_rng = _random.Random(seed)
         self._unsubs: List[Callable[[], None]] = []
         self._bus: Optional[EventBus] = None
         if bus is not None:
@@ -149,8 +193,64 @@ class Whisperer:
         """Return the whispers as a list of plain dicts (for JSON)."""
         return [w.to_dict() for w in self.whispers]
 
+    # ---- Sprint 8: name registry ----------------------------------------
+    def get_name(self, kind: str) -> Optional[str]:
+        """Return the registered name for ``kind``, or ``None`` if unseen."""
+        return self.names.get(kind)
+
+    def _mint_name(self, kind: str, category: Optional[str]) -> str:
+        """Deterministically mint a short evocative name for ``kind``.
+
+        The name is built from a deterministic adjective drawn from a small
+        fixed pool plus the raw ``kind`` string, e.g. ``"creeping goblin"``.
+        Determinism: the per-Whisperer RNG is seeded from the constructor
+        ``seed`` argument, so two Whisperers built with the same seed (and
+        the same first_sight call sequence) mint identical names.
+        """
+        adj = _NAME_ADJECTIVES[self._name_rng.randrange(len(_NAME_ADJECTIVES))]
+        return f"{adj} {kind}"
+
+    def _ensure_name_for_first_sight(self, event: Event) -> Optional[str]:
+        """Idempotent name minting for a first_sight event.
+
+        Returns the registered name (newly minted or pre-existing), or
+        ``None`` if the event payload lacked a usable ``kind``.
+        """
+        payload = event.payload or {}
+        kind = payload.get("kind")
+        if not isinstance(kind, str) or not kind:
+            return None
+        if kind in self.names:
+            return self.names[kind]
+        category = payload.get("category")
+        if not isinstance(category, str):
+            category = None
+        name = self._mint_name(kind, category)
+        self.names[kind] = name
+        return name
+
     # ---- internals --------------------------------------------------------
     def _handle_event(self, event: Event) -> None:
+        # Sprint 8: dedupe room_entered by (floor, room_id) BEFORE the
+        # per-turn cap so re-entering a room never spends a whisper slot.
+        if event.type == "room_entered":
+            key = self._room_key(event)
+            if key is None:
+                return
+            if key in self._seen_rooms:
+                return
+            self._seen_rooms.add(key)
+
+        # Sprint 8: dedupe first_sight by kind so the second sighting of
+        # the same kind never produces a second whisper (and never re-mints
+        # a name).
+        if event.type == "first_sight":
+            payload = event.payload or {}
+            kind = payload.get("kind") if isinstance(payload, dict) or hasattr(payload, "get") else None
+            if isinstance(kind, str) and kind in self.names:
+                # Already registered: idempotent skip.
+                return
+
         # Throttling: per-turn cap.
         turn = event.turn
         count = self._turn_counts.get(turn, 0)
@@ -158,15 +258,30 @@ class Whisperer:
             return
         # Coalesce: same (turn, type) -> only one whisper per turn even
         # under the cap. This protects against teleport-style spam of
-        # identical event types in a single turn.
+        # identical event types in a single turn. Sprint 8: coalesce keys
+        # for first_sight and room_entered are (type, distinguishing-key)
+        # so distinct kinds / distinct rooms within one turn are NOT
+        # collapsed even though they share the type.
         seen = self._seen_turn_types.setdefault(turn, set())
-        if event.type in seen:
+        coalesce_key = self._coalesce_key(event)
+        if coalesce_key in seen:
             return
-        seen.add(event.type)
+        seen.add(coalesce_key)
         self._turn_counts[turn] = count + 1
+
+        # Sprint 8: for first_sight, mint a name BEFORE the adapter call so
+        # the prompt and the substitution have access to it.
+        minted_name: Optional[str] = None
+        if event.type == "first_sight":
+            minted_name = self._ensure_name_for_first_sight(event)
 
         # Choose adapter and fallback flag.
         text, tokens, adapter_name, fallback, error_reason = self._produce(event)
+
+        # Sprint 8: substitute the minted name into first_sight prose.
+        if event.type == "first_sight" and minted_name:
+            text = self._substitute_name(text, minted_name)
+
         whisper = Whisper(
             text=text,
             source_event_type=event.type,
@@ -178,6 +293,49 @@ class Whisperer:
             error_reason=error_reason,
         )
         self.whispers.append(whisper)
+
+    @staticmethod
+    def _room_key(event: Event) -> Optional[tuple]:
+        """Return ``(floor, room_id)`` for a room_entered event, or None."""
+        payload = event.payload or {}
+        if not hasattr(payload, "get"):
+            return None
+        room_id = payload.get("room_id")
+        # Prefer the payload's floor; fall back to event.floor.
+        floor = payload.get("floor", event.floor)
+        if room_id is None:
+            return None
+        return (floor, room_id)
+
+    @staticmethod
+    def _coalesce_key(event: Event) -> tuple:
+        """Per-turn coalesce key for an event.
+
+        For most types the key is the type itself (matching Sprint-7
+        behavior: 50 ``entered_room`` events on a single turn collapse to
+        one whisper). For ``first_sight`` and ``room_entered`` we add a
+        secondary discriminator so distinct kinds / distinct rooms within
+        the same turn are NOT collapsed.
+        """
+        if event.type == "first_sight":
+            payload = event.payload or {}
+            kind = payload.get("kind") if hasattr(payload, "get") else None
+            return (event.type, kind)
+        if event.type == "room_entered":
+            payload = event.payload or {}
+            if hasattr(payload, "get"):
+                return (event.type, payload.get("floor", event.floor),
+                        payload.get("room_id"))
+            return (event.type,)
+        return (event.type,)
+
+    @staticmethod
+    def _substitute_name(text: str, name: str) -> str:
+        """Replace any documented placeholder in ``text`` with ``name``."""
+        out = text
+        for ph in FIRST_SIGHT_PLACEHOLDERS:
+            out = out.replace(ph, name)
+        return out
 
     def _produce(self, event: Event):
         """Run the primary adapter, falling back on failure or budget exhaustion.
@@ -239,4 +397,10 @@ class Whisperer:
         )
 
 
-__all__ = ["Whisperer", "Whisper", "DEFAULT_PER_TURN_CAP", "DEFAULT_BUDGET"]
+__all__ = [
+    "Whisperer",
+    "Whisper",
+    "DEFAULT_PER_TURN_CAP",
+    "DEFAULT_BUDGET",
+    "FIRST_SIGHT_PLACEHOLDERS",
+]

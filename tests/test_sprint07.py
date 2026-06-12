@@ -459,18 +459,38 @@ def test_cli_no_whisperer_and_null_produce_clean_exits():
 
 
 def test_dungeon_frame_unchanged_modulo_banner():
+    # Sprint 7's "plumbing-only" invariant (default == no-whisperer modulo
+    # banner) was superseded in Sprint 8: the default --headless run now
+    # composes a whisper panel to the right of the grid. The Sprint-7
+    # GUARANTEE that the underlying dungeon GRID is unchanged still holds
+    # — we extract it from the composite output's left-hand columns and
+    # compare against the --no-whisperer output.
     a = _run_cli("--seed", "1", "--headless", "--no-whisperer").stdout
     b = _run_cli("--seed", "1", "--headless").stdout
     # Strip the leading banner line from b.
     assert b.startswith("# whisperer: offline\n")
     b_stripped = b[len("# whisperer: offline\n"):]
-    assert a == b_stripped
-    # No whisper prose in either output.
+    a_rows = a.rstrip("\n").split("\n")
+    b_rows = b_stripped.rstrip("\n").split("\n")
+    # Sprint 8 default: each composite row begins with the grid row,
+    # followed by a two-space gutter and the panel content. The grid rows
+    # in b_stripped therefore match a's rows as a prefix.
+    assert len(a_rows) == len(b_rows), (
+        f"row count differs: {len(a_rows)} vs {len(b_rows)}"
+    )
+    for ar, br in zip(a_rows, b_rows):
+        assert br.startswith(ar), (
+            "grid row not preserved as a prefix in composite output"
+        )
+    # The grid-only output never carries the offline pool's prose.
     pool = get_prose_pool()
     for entries in pool.values():
         for entry in entries:
-            assert entry not in a
-            assert entry not in b_stripped
+            assert entry not in a, "no-whisperer output leaked prose"
+    # The composite output's panel CARRIES whisper prose by Sprint 8
+    # design; the precise substring assertion is exercised by the
+    # Sprint-8 test_sprint08.py suite (C5). This Sprint-7 regression test
+    # only guarantees the dungeon grid is preserved (above).
 
 
 # =============================================================================

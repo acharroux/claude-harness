@@ -1,5 +1,14 @@
 {
   "run_started": [
+    "The dungeon exhales.",
+    "A run begins.",
+    "Torchlight finds dust.",
+    "First breath.",
+    "The threshold accepts you.",
+    "Begin. The deep waits.",
+    "Welcome, traveler.",
+    "Step lightly.",
+    "The deep is listening.",
     "The dungeon exhales. Your boots find stone, and the dark leans in.",
     "A run begins. The deep is patient and the deep is hungry.",
     "Torchlight catches dust older than your name. Step lightly.",
@@ -75,5 +84,27 @@
     "Another step deeper into the ledger of the deep.",
     "Below. The torch finds new dust to disturb.",
     "You go down, and the deep shifts to receive you."
+  ],
+  "first_sight": [
+    "You name the shape in the dark: {name}. It does not answer.",
+    "The deep introduces you to {name}, briefly, with poor manners.",
+    "Call it {name}, then. The dungeon will not argue the point.",
+    "{name}, the corridor offers, and the corridor is rarely wrong.",
+    "A new face for the ledger: {name}. Try not to share its fate.",
+    "You decide on {name}. Whatever it is, it has decided on you.",
+    "{name} — the word arrives first, the danger arrives second.",
+    "The thing has a shape now, and the shape has a name: {name}.",
+    "You whisper {name} under your breath. The deep is taking notes."
+  ],
+  "room_entered": [
+    "The chamber is older than the torch that lights it.",
+    "Damp stone, cold air, and something that might once have been laughter.",
+    "Dust drapes the corners like a tired curtain.",
+    "The room remembers other footsteps; yours are merely the latest.",
+    "A faint draft moves the dust but not quite enough to be honest about it.",
+    "The walls here have learned to keep secrets.",
+    "Your torch finds more shadow than stone in this place.",
+    "The ceiling vaults higher than seems strictly necessary.",
+    "Something rustles beyond the light. The room declines to explain."
   ]
 }
