@@ -33,6 +33,24 @@ class Game:
         # Number of player-driven actions taken (turn counter).
         self.turns: int = 0
 
+    # ---- factories -------------------------------------------------------
+    @classmethod
+    def from_seed(
+        cls,
+        seed: int,
+        *,
+        num_floors: int = 3,
+        width: int = 80,
+        height: int = 40,
+    ) -> "Game":
+        """Construct a Game directly from a master seed (Sprint 1 C7).
+
+        This is the canonical "give me a game" factory; the CLI uses it,
+        and tests can use it without juggling a World by hand.
+        """
+        world = World(master_seed=seed, num_floors=num_floors, width=width, height=height)
+        return cls(world)
+
     # ---- accessors -------------------------------------------------------
     @property
     def floor(self) -> Floor:
