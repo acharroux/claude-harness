@@ -1,0 +1,145 @@
+{
+  "sprintNumber": 10,
+  "attempt": 1,
+  "timestamp": "2026-06-12T22:30:00Z",
+  "overallResult": "PASS",
+  "scores": {
+    "correctness": { "score": 9, "max": 10, "threshold": 7, "pass": true },
+    "quality": { "score": 9, "max": 10, "threshold": 6, "pass": true },
+    "completeness": { "score": 9, "max": 10, "threshold": 7, "pass": true },
+    "robustness": { "score": 9, "max": 10, "threshold": 6, "pass": true }
+  },
+  "criteriaResults": [
+    {
+      "id": "C1",
+      "result": "PASS",
+      "evidence": "`from whisperdeep.chronicle import build_chronicle, write_chronicle, default_chronicle_path, slugify_name, DEFAULT_NAME` succeeded. Both build_chronicle and write_chronicle are callable. Module docstring contains 'Metadata', 'Notable Events', 'Epitaph' section names; documents the timestamp policy (ISO-8601 + 'fixed_timestamp' kwarg) and the four required sections explicitly."
+    },
+    {
+      "id": "C2",
+      "result": "PASS",
+      "evidence": "Game.from_seed(seed=1)+observe_kind('skitterer')+end_run('quit'); build_chronicle(name='Mara', fixed_timestamp='2026-06-12T00:00:00Z') returned a non-empty Markdown string. First line is `# Mara — A Whisperdeep Chronicle` (H1 with name). Result contains '## Metadata', '## Notable Events', '## Epitaph' headers; metadata bullet '- seed: 1' present; '- floors_reached: ...' present; literal fixed timestamp present; the epitaph section's quoted text ('The deep keeps you, as it keeps the others, without complaint.') is verbatim from prose_pool['epitaph']."
+    },
+    {
+      "id": "C3",
+      "result": "PASS",
+      "evidence": "EVENT_TYPES contains 'epitaph' (EventType.EPITAPH.value == 'epitaph'). Original seven Sprint-7 names (run_started, run_ended, entered_room, killed_monster, low_hp, found_item, descended) all still present. Sprint-8 additions (first_sight, room_entered) still present. prose_pool['epitaph'] has 10 distinct non-empty string entries (>= 8 required). All nine prior canonical types still have >= 8 distinct entries (no regression)."
+    },
+    {
+      "id": "C4",
+      "result": "PASS",
+      "evidence": "Game.end_run('quit') returned True; whisperer.whispers gained whispers with source_event_type 'run_ended' and 'epitaph' (one each, both fired on bumped turn numbers so the per-turn cap does not coalesce them). Second call to end_run returned False; no further run_ended/epitaph whispers appeared. With Game.from_seed(whisperer=False), end_run returned False without raising (game.events is None branch hit)."
+    },
+    {
+      "id": "C5",
+      "result": "PASS",
+      "evidence": "After observe_kind('goblin')+teleport(downstairs)+descend()+end_run(), the chronicle's events section bullets in order are: run_started, room_entered, first_sight, descended, room_entered, run_ended, epitaph. run_started comes first; descended precedes run_ended; first_sight whisper for 'goblin' present; bullet format `- [<event_type>@t<turn>:f<floor>] <text>` matches the documented convention."
+    },
+    {
+      "id": "C6",
+      "result": "PASS",
+      "evidence": "write_chronicle(game, '<tmp>/nested/deeper/run.md') created the two missing parent dirs and wrote the file. Returned path resolves and exists. File content == build_chronicle(...) output byte-for-byte. File begins with '# '. Writing twice to the same path overwrites correctly (second write's '# B' present, first write's '# A ' absent)."
+    },
+    {
+      "id": "C7",
+      "result": "PASS",
+      "evidence": "default_chronicle_path: seed=1/name=Mara differs from seed=2/name=Mara (seed sensitive); seed=1/name=Mara differs from seed=1/name=Devon (name sensitive); each path has 'chronicles' as a directory component and ends in .md. slugify_name('Mara the Lost') -> 'mara-the-lost'; slugify_name('  ') -> 'unnamed'; slugify_name('Mara/the\\\\Lost!') strips /, \\, ! and is lowercase."
+    },
+    {
+      "id": "C8",
+      "result": "PASS",
+      "evidence": "`python -m whisperdeep --help` exit 0 and lists --name, --chronicle. `python -m whisperdeep --seed 1 --headless --name Mara --chronicle TMP/chronicle.md --chronicle-fixed-timestamp 2026-06-12T00:00:00Z` exit 0; chronicle file exists, starts with '# ', contains 'Mara' and 'seed' + '1'. Same with --name 'The Unnamed' produces a file containing 'The Unnamed'. With --chronicle omitted, no chronicle file is written; CLI exit 0."
+    },
+    {
+      "id": "C9",
+      "result": "PASS",
+      "evidence": "Two separate Games seed=11 produced byte-identical build_chronicle output (with fixed timestamp). Seed=12 differs from seed=11. Two separate subprocess invocations of `python -m whisperdeep --seed 11 ... --chronicle ... --chronicle-fixed-timestamp ...` produced byte-identical chronicle files."
+    },
+    {
+      "id": "C10",
+      "result": "PASS",
+      "evidence": "Epitaph section's first non-blank line begins with '> ' (Markdown blockquote). The quoted text is verbatim in prose_pool['epitaph']. The text equals the most-recent whisper with source_event_type=='epitaph' in game.whisperer.whispers. Two fresh Games with seed=11 produced the same epitaph string (deterministic)."
+    },
+    {
+      "id": "C11",
+      "result": "PASS",
+      "evidence": "build_chronicle on Game(whisperer=False) returns valid Markdown starting with '# Mara' and contains the placeholder 'no whispers were recorded' phrase in the events section. build_chronicle on Game without end_run() succeeds and contains the run_started prose. Long name (~100 chars repeated) is preserved verbatim in the H1. Unicode name 'Marä Köld' appears in both build_chronicle's string output and on disk after write_chronicle (UTF-8 round-trip ok)."
+    },
+    {
+      "id": "C12",
+      "result": "PASS",
+      "evidence": "End-to-end CLI invocation produced a chronicle and a whisper dump JSON. All whisper texts (or their `[<event_type>@` bullet markers) appear in the chronicle Markdown. Chronicle contains 2 whispers (run_started, room_entered) plus the run_ended + epitaph injected by end_run."
+    },
+    {
+      "id": "C13",
+      "result": "PASS",
+      "evidence": "pytest tests/test_sprint08.py: 20/20 PASS. EVENT_TYPES is a superset of {original-7 + first_sight + room_entered + epitaph}. `python -m whisperdeep --seed 1 --headless --no-panel --dump-whispers PATH` exit 0; whisper JSON non-empty. --no-whisperer / --panel-width / --dump-whispers all still functional."
+    },
+    {
+      "id": "C14",
+      "result": "PASS",
+      "evidence": "pytest tests/test_sprint01.py tests/test_sprint07.py tests/test_generator.py tests/test_game.py: all PASS. Two subprocess runs of `python -m whisperdeep --seed 1 --headless --no-whisperer` produced byte-identical stdout. --seed 2 differs. Glyphs '#', '.', '@', '>' all present. `--whisperer null` produces no prose-pool string in stdout."
+    },
+    {
+      "id": "C15",
+      "result": "PASS",
+      "evidence": "tests/test_sprint10.py contains 34 distinct `test_*` functions (>= 12 required). Coverage spans every required scenario: module imports, structure, epitaph in EVENT_TYPES + pool, end_run idempotency + safe-on-no-whisperer, chronological events, write_chronicle parent + overwrite, default path uniqueness + slug, CLI flags, build/CLI determinism, epitaph rendering convention + determinism, edge cases (no whisperer, no end_run, long name, unicode), end-to-end whisper-vs-chronicle consistency, sprint-7/8 regression, layering. No imports of requests/httpx/urllib/anthropic/openai. Full pytest suite: 120/120 PASS."
+    },
+    {
+      "id": "C16",
+      "result": "PASS",
+      "evidence": "docs/whisperdeep.md has a Sprint-10 status banner at the top AND a full 'Chronicles (Sprint 10)' section. Coverage verified: format (four sections enumerated); ISO-8601 timestamp + fixed_timestamp injection; the `epitaph` event type and its place in EVENT_TYPES; --name + --chronicle CLI flags table; default chronicle path pattern (`chronicles/seed-<N>-<slug>-floor-<F>.md` and slug rules); cross-run 'death legends' explicitly deferred ('What's NOT in this sprint' subsection)."
+    },
+    {
+      "id": "C17",
+      "result": "PASS",
+      "evidence": "whisperdeep/chronicle.py imports: stdlib (datetime, os, re, pathlib) + typing + TYPE_CHECKING-only refs to Game/Whisper. NO `from .llm`, `from .render`, `from .panel`. whisperdeep/events.py and whisperdeep/llm.py have no imports of chronicle (only docstring text reference in events.py for the EPITAPH enum value, which is not an import). whisperdeep/game.py has no top-level `from .chronicle` or `import whisperdeep.chronicle`. EVENT_TYPES gained 'epitaph' additively while keeping all ten prior names."
+    },
+    {
+      "id": "C18",
+      "result": "PASS",
+      "evidence": "Metadata bullets `- seed: `, `- name: `, `- floors_reached: `, `- turns: `, `- adapter: `, `- timestamp: ` all match `^- key: ` regex anchored to line start. With seed=7 + name='Mara' + fixed_timestamp='2026-06-12T00:00:00Z': '- seed: 7', '- name: Mara', '- timestamp: 2026-06-12T00:00:00Z' all literally present. Default timestamp matches `^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$` (ISO-8601 UTC, 'Z'-terminated). Document order: H1 < ## Metadata < ## Notable Events as required."
+    }
+  ],
+  "regression": {
+    "sprintsChecked": [1, 2, 7, 8],
+    "criteriaChecked": 4,
+    "pass": 4,
+    "fail": 0,
+    "failures": []
+  },
+  "regressionResults": [
+    {
+      "sprint": 1,
+      "result": "PASS",
+      "evidence": "tests/test_sprint01.py: 23/23 PASS. Glyph contract preserved (`#`, `.`, `@`, `>` all present in --no-whisperer seed=1 frame)."
+    },
+    {
+      "sprint": 2,
+      "result": "PASS",
+      "evidence": "tests/test_generator.py + tests/test_game.py: 21/21 PASS. `--no-whisperer` produces byte-identical Sprint-2 frame across processes; different seeds produce different frames."
+    },
+    {
+      "sprint": 7,
+      "result": "PASS",
+      "evidence": "tests/test_sprint07.py: 22/22 PASS. EVENT_TYPES superset preserved; `--whisperer null` produces no pool prose in stdout (NullAdapter contract intact)."
+    },
+    {
+      "sprint": 8,
+      "result": "PASS",
+      "evidence": "tests/test_sprint08.py: 20/20 PASS. Panel renders, render_frame_with_whispers + render_frame both work, --no-panel/--panel-width/--dump-whispers all still functional."
+    }
+  ],
+  "passCount": 18,
+  "failCount": 0,
+  "blockingFailures": 0,
+  "holisticScores": {
+    "correctness": 9,
+    "quality": 9,
+    "completeness": 9,
+    "robustness": 9
+  },
+  "holisticNotes": "Correctness: every contract criterion was independently verified by an evaluator script that re-imported the modules and ran the documented test steps; 18/18 PASS. Robustness: chronicle survives whisperer=False (graceful 'no whispers' placeholder), missing end_run (placeholder epitaph), long names, unicode names round-tripping through UTF-8 disk IO, missing parent directories. Code quality: layering invariants are strictly preserved (chronicle.py imports stdlib + typing + TYPE_CHECKING refs only -- no llm, render, or panel); EVENT_TYPES change is additive; events/llm modules have no chronicle dependency; game.py has no top-level chronicle import. Test coverage: 34 new sprint-10 tests + 120/120 total pytest pass; no network imports anywhere. Documentation: full Sprint-10 banner + Chronicles section covering all eight required topics. Determinism: chronicle Markdown is byte-deterministic for a fixed (seed, name, fixed_timestamp); the epitaph chosen by the offline pool is reproducible across fresh Games with the same seed. The implementation cleanly handled the contractual requirement that Sprints 6 and 9 are NOT in tree -- Sprint 10 is fully standalone, depending only on Sprints 7-8 plumbing.",
+  "blockingIssues": [],
+  "summary": "Sprint 10 PASSES all 18 criteria and all four regression sprints (1, 2, 7, 8). The Chronicle Generator (F9) is delivered: a self-contained Markdown chronicle with title / metadata block / chronological events / epitaph blockquote; a new additive `epitaph` canonical event type with >= 8 distinct prose pool entries; a `Game.end_run` lifecycle hook (idempotent + safe with whisperer=False); CLI flags `--name`, `--chronicle`, `--chronicle-fixed-timestamp`, `--no-chronicle`; a default chronicle path under `chronicles/` with seed+slug+floor naming; full ISO-8601 UTC timestamping with deterministic fixed-timestamp injection for tests; layering invariants from Sprints 7-8 strictly preserved; 120/120 pytest tests pass with no network. Cross-run 'death legends' (Whisperer reading prior chronicles) is explicitly out of scope and properly deferred."
+}
