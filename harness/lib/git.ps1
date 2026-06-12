@@ -15,8 +15,13 @@ $ErrorActionPreference = 'Stop'
 # Returns: [pscustomobject]@{ Output = string; ExitCode = int }
 function Invoke-GitCapture {
     param([Parameter(Mandatory)][string[]]$Args)
+    # PS 5.1: native-command stderr becomes NativeCommandError under $ErrorActionPreference=Stop
+    # even with 2>$null.  Lower pref for the call; rely solely on $LASTEXITCODE.
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'SilentlyContinue'
     $out = & git @Args 2>$null
     $code = $LASTEXITCODE
+    $ErrorActionPreference = $prev
     if ($null -eq $out) { $out = '' }
     if ($out -is [array]) { $out = ($out -join "`n") }
     return [pscustomobject]@{ Output = "$out"; ExitCode = $code }
@@ -67,12 +72,17 @@ function New-HarnessBranch {
 
     Write-LogInfo "Creating harness branch: $harnessBranch from $baseBranch"
 
-    # Try to create; if it already exists, just check it out.
-    $created = Invoke-GitCapture -Args @('checkout', '-b', $harnessBranch, $baseBranch)
-    if ($created.ExitCode -ne 0) {
-        $checked = Invoke-GitCapture -Args @('checkout', $harnessBranch)
-        if ($checked.ExitCode -ne 0) {
-            throw "Failed to create or checkout harness branch: $harnessBranch"
+    # If branch already exists (e.g. resuming after a crash), just check it out.
+    if (Test-GitRefExists -Ref $harnessBranch) {
+        Write-LogInfo "Branch $harnessBranch already exists -- resuming"
+        $r = Invoke-GitCapture -Args @('checkout', $harnessBranch)
+        if ($r.ExitCode -ne 0) {
+            throw "Failed to checkout existing harness branch: $harnessBranch"
+        }
+    } else {
+        $r = Invoke-GitCapture -Args @('checkout', '-b', $harnessBranch, $baseBranch)
+        if ($r.ExitCode -ne 0) {
+            throw "Failed to create harness branch: $harnessBranch (exit $($r.ExitCode))"
         }
     }
 
