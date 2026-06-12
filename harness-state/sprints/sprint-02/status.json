@@ -2,8 +2,8 @@
   "status": "pass",
   "attempt": 1,
   "timestamp": "2026-06-12T00:00:00Z",
-  "evaluator": "independent QA evaluator (fresh context)",
+  "evaluator": "independent QA evaluator (fresh context, 2026-06-12)",
   "passCount": 22,
   "failCount": 0,
-  "note": "Sprint 2 was fully implemented, evaluated PASS (22/22) by an independent evaluator (see eval-report.json), and committed prior to this turn. The current Generator invocation re-verified the implementation (44/44 pytest pass, headless render correct) and made no source changes. Status restored to 'pass' to reflect the existing eval-report.json; no new evaluation is needed because the code under test is byte-identical to what was previously evaluated. See generator-log.md for re-verification details."
+  "note": "Sprint 2 evaluated PASS by independent evaluator on a fresh context. All 22 contract criteria verified with programmatic evidence. 44/44 pytest tests pass. Regression against Sprint 1 (via tests/test_sprint01.py + live launch) PASS. Holistic scores: correctness=9, quality=8, completeness=9, robustness=7 (weighted=8.3, threshold=7). See eval-report.json."
 }
