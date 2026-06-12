@@ -1,18 +1,43 @@
 {
-  "projectName": "",
-  "completedSprints": [],
-  "currentSprint": 1,
-  "totalSprints": 0,
-  "completedFeatures": [],
-  "keyFiles": {},
-  "techStack": {},
+  "projectName": "whisperdeep",
+  "completedSprints": [1, 2],
+  "currentSprint": 2,
+  "totalSprints": 12,
+  "completedFeatures": ["F1", "F2"],
+  "keyFiles": {
+    "package": "whisperdeep/",
+    "cliEntrypoint": "whisperdeep/__main__.py",
+    "generator": "whisperdeep/generator.py",
+    "world": "whisperdeep/world.py",
+    "floor": "whisperdeep/floor.py",
+    "tiles": "whisperdeep/tiles.py",
+    "game": "whisperdeep/game.py",
+    "render": "whisperdeep/render.py",
+    "entity": "whisperdeep/entity.py",
+    "cli": "whisperdeep/cli.py",
+    "tests": "tests/test_generator.py, tests/test_game.py",
+    "docs": "docs/whisperdeep.md"
+  },
+  "techStack": {
+    "language": "Python 3.11+",
+    "interpreter": "python (Python 3.12.8 verified)",
+    "testRunner": "pytest",
+    "renderer": "ASCII (stdout)",
+    "dependencies": []
+  },
   "outstandingIssues": [],
-  "devServerCommand": "",
+  "devServerCommand": "python -m whisperdeep --seed 1",
   "devServerPort": 0,
   "git": {
-    "harnessBranch": "harness/game",
+    "harnessBranch": "harness/game-sprint-02",
     "latestTag": "",
     "latestMergeSha": "",
     "prNumbers": []
-  }
+  },
+  "notes": [
+    "Sprint 1 was not implemented in a previous turn; Sprint 2 bootstrapped the full project scaffold (entity/tile/grid model, render loop, basic player movement) AND delivered the rooms-and-corridors generator, doors, stairs, and multi-floor descent.",
+    "Run interactively: `python -m whisperdeep --seed 1`. Run headless (CI/snapshot): `python -m whisperdeep --seed 1 --headless`.",
+    "Glyphs: '#' wall, '.' floor, '+' door, '<' upstairs, '>' downstairs, '@' player.",
+    "All 21 pytest tests pass."
+  ]
 }
