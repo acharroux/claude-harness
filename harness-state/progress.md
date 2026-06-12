@@ -1,8 +1,0 @@
-# Harness Progress Log
-
-**Project**: build an asteroid game
-**Started**: 2026-06-12T11:58:38Z
-**Model**: opus
-**Context strategy**: reset
-
----
