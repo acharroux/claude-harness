@@ -19,3 +19,7 @@ __pycache__/
 # Environment
 .env
 .env.local
+
+# Harness infrastructure (not project code)
+.claude/agents/
+.claude/skills/
