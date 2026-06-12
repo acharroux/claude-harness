@@ -1,0 +1,336 @@
+{
+  "sprintNumber": 10,
+  "sprintName": "Chronicle Generator",
+  "theme": "End-of-run Markdown chronicle with epitaph and optional player-named character",
+  "features": ["F9"],
+  "dependsOn": [6, 8, 9],
+  "summary": "Sprint 10 makes every run leave a story behind. When a run ends — by player death, by reaching the bottom of the dungeon (or top, if ascending), by the player quitting cleanly, or by the headless CLI completing its scripted frames — Whisperdeep writes a Markdown 'chronicle' file to a `chronicles/` directory. The chronicle is auto-generated from the run's event log + the Whisperer's accumulated whispers + a few summary stats (seed, floors reached, turns, kills if available, items if available, named monsters/items the Whisperer minted) and is closed with a Whisperer-authored epitaph. The player can name their character via a CLI flag (`--name`) or accept a deterministic default; the name appears in the chronicle title and the epitaph. This sprint also formally introduces the run-end lifecycle event the rest of the engine needs (Game.end_run() + RUN_ENDED publication on the bus) so the Whisperer can react to a death/finish in the same way it reacts to other milestones. Sprints 6 (full save/load + death by combat) and 9 (director nudges + persistent meta-memory) are NOT merged in tree; this sprint must therefore not depend on combat-driven death or cross-run persistence existing — but it must EXPOSE the seams those sprints will plug into (an `outcome` enum on the chronicle that includes 'died', a `summarize_run()` hook the future meta-memory file can consume, and a documented chronicle Markdown schema). The chronicle generator is fully deterministic for the same seed in the offline configuration: same seed -> byte-identical chronicle file (modulo a single suppressible timestamp line). All work is plain Python, plain Markdown, plain JSON, no new third-party dependencies.",
+  "assumptions": [
+    "Sprints 1, 2, 7, 8 + fix-001 are merged in tree (handoff and git log confirm 86+ pytest tests passing through end of Sprint 8). The Whisperer event bus, OfflineAdapter, prose pool, panel renderer, first_sight/room_entered events, --dump-whispers, --no-whisperer, --no-panel, --panel-width, and --whisperer-model flags all exist and pass their evaluations.",
+    "Sprints 3, 4, 5, 6, 9 are NOT merged in tree. Sprint 10 must therefore not depend on combat (HP, damage, death-by-monster), inventory (pickup/drop), full monster AI, save/load slots, or persistent cross-run meta-memory. Where the chronicle wants 'death by goblin' style content, Sprint 10 accepts a stubbed/manual outcome (e.g., end_run(outcome='died', cause='a creeping goblin') invocable directly by tests and by the CLI's headless flow) and documents the seams Sprints 5/6/9 will fill in.",
+    "Run end is signalled by an explicit Game.end_run(...) call. The CLI invokes it at the end of the headless flow and on clean quit in interactive mode. Sprint 6's eventual combat death code path will call the same hook. The Whisperer subscribes to the new RUN_ENDED event (which already exists in the canonical EVENT_TYPES from Sprint 7) and produces an epitaph whisper on that event.",
+    "Chronicles are written to a `chronicles/` directory. The directory location is configurable via a CLI flag (`--chronicles-dir PATH`) and a programmatic argument (Game.end_run(chronicles_dir=...)). The default is `./chronicles/` relative to the current working directory. The file name follows a documented pattern (e.g., `whisperdeep-seed{N}-{character}-{outcome}.md`) and is deterministic for a given (seed, character_name, outcome).",
+    "Chronicle determinism: with --seed N and the offline adapter, two runs that take the SAME actions (the headless default, which is no scripted frames) produce byte-identical chronicle Markdown EXCEPT for a single optional timestamp line. The timestamp line can be suppressed by an env var or a CLI flag (`--chronicle-no-timestamp` or equivalent) for tests; all other content is reproducible from the seed alone.",
+    "The Markdown schema is documented in code/docs and tested. Required sections: a YAML or HTML-comment frontmatter block carrying machine-readable fields (seed, character, outcome, floors_reached, turns, started_at?, ended_at?), a human-readable title, a 'Run Summary' bullet list, a 'Whispers' section listing whispers in chronological order, an optional 'Named in Passing' section listing first-sight names minted, and a final 'Epitaph' section containing the closing whisper.",
+    "Pytest remains the test runner; tests live under tests/. Tests must NOT make network calls; they exercise the offline adapter only. The Sprint-7 layering invariants are preserved: chronicle code may import events/whisperer/game/floor + stdlib but must not import concrete provider adapters or do network I/O at import time.",
+    "Player-named character: a `--name` CLI flag (or `--character`) sets a string used in the chronicle title and epitaph. When omitted, a deterministic default is derived from the seed (e.g., 'wanderer-seed-N' or a poetic stub). The name is sanitized for filesystem use (alphanum + dash/underscore; spaces collapse; max length 64) before going into the filename.",
+    "summarize_run() hook: a method on the Whisperer (or a new `chronicle` module function) that produces a small dict summarizing the run, suitable for the future Sprint-9 meta-memory file. The hook returns a JSON-serializable dict and is the documented seam Sprint 9 will read from."
+  ],
+  "criteria": [
+    {
+      "id": "C1",
+      "category": "code-structure",
+      "description": "A chronicle module/component exists and is importable. Either (a) a new module `whisperdeep/chronicle.py` exposes public functions like `build_chronicle(game, *, character=None, outcome='completed', cause=None) -> str` and `write_chronicle(path, game, *, character=None, outcome='completed', cause=None) -> str`, OR (b) the equivalent functions live on `whisperdeep/whisperer.py` / `whisperdeep/game.py` with the same names and signatures. The build function returns a Markdown string; the write function persists it to disk and returns the path written.",
+      "testMethod": "static",
+      "testSteps": [
+        "Run `python -c \"from whisperdeep.chronicle import build_chronicle, write_chronicle\"` (or the documented equivalent import path) and confirm exit 0.",
+        "Inspect `build_chronicle`'s signature: it accepts a Game (or game-like object exposing `.world`, `.whisperer`, `.turns`, `.current_floor_index`) and at minimum the keyword arguments `character`, `outcome`, `cause`.",
+        "Inspect `write_chronicle`'s signature: same kwargs plus a path/dir argument; it returns the absolute path of the written file."
+      ],
+      "threshold": "build_chronicle and write_chronicle are importable from a documented module path and have the documented signatures."
+    },
+    {
+      "id": "C2",
+      "category": "feature",
+      "description": "A run-end lifecycle hook exists on the Game: `Game.end_run(*, outcome='completed', cause=None, character=None, write=True, chronicles_dir=None) -> dict`. Calling it (a) publishes a single `run_ended` event on the bus with payload at minimum `{'outcome': str, 'cause': Optional[str], 'turns': int, 'floor': int}`, (b) optionally writes a chronicle Markdown file to disk (when `write=True`, default), and (c) returns a small summary dict `{'path': Optional[str], 'outcome': str, 'turns': int, 'floor': int, 'character': str, 'whispers': int}`. `end_run` is idempotent: calling it twice on the same Game instance does NOT publish a second `run_ended` event nor write a second file.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Construct `Game.from_seed(seed=1, whisperer=True)`.",
+        "Subscribe a recorder list on the EventBus for `run_ended`.",
+        "Call `game.end_run(outcome='died', cause='a creeping goblin', character='Mara', write=False)`; capture summary.",
+        "Assert exactly ONE `run_ended` event was recorded; payload contains outcome='died', cause='a creeping goblin', turns >= 0, floor == game.current_floor_index.",
+        "Assert summary['outcome'] == 'died', summary['character'] == 'Mara', summary['whispers'] == len(game.whisperer.whispers).",
+        "Call `game.end_run(...)` a SECOND time with different arguments.",
+        "Assert NO second `run_ended` event fired and the second call's returned `path` is None (already-ended is a no-op or returns the cached summary)."
+      ],
+      "threshold": "Game.end_run publishes RUN_ENDED exactly once, returns a summary dict, and is idempotent."
+    },
+    {
+      "id": "C3",
+      "category": "feature",
+      "description": "The Whisperer reacts to `run_ended` by appending one EPITAPH whisper to its log. The epitaph is drawn from a dedicated 'epitaph' section of the prose pool (or a dedicated 'run_ended' subset filtered by an 'epitaph' tag/marker) and is the LAST whisper produced for the run. The whisper has source_event_type == 'run_ended' and is included in the chronicle's Epitaph section.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Construct `Game.from_seed(seed=1, whisperer=True)` and capture the count of whispers BEFORE end_run.",
+        "Call `game.end_run(outcome='died', cause='a creeping goblin', write=False)`.",
+        "Assert exactly ONE new whisper was appended whose source_event_type == 'run_ended'.",
+        "Assert the new whisper's text is non-empty and is drawn from the offline pool's run_ended/epitaph entries (string membership check against the loaded pool).",
+        "Verify the epitaph whisper is the LAST element of `game.whisperer.whispers` (no further whispers come after it in the same run)."
+      ],
+      "threshold": "Whisperer produces exactly one epitaph whisper on run_ended; it is the last whisper of the run."
+    },
+    {
+      "id": "C4",
+      "category": "feature",
+      "description": "The chronicle Markdown has a documented schema with all required sections. `build_chronicle(game, character='Mara', outcome='died', cause='a creeping goblin')` returns a string that contains: (1) a frontmatter block (YAML `---\\n...\\n---` OR an HTML comment `<!-- ... -->`) carrying machine-readable fields {seed, character, outcome, cause, turns, floor, whispers, num_floors}; (2) a level-1 Markdown heading containing the character name; (3) a 'Run Summary' section as a bullet list with at least seed/character/outcome/turns/floor entries; (4) a 'Whispers' section listing whispers in chronological order (each whisper visible as plain text on its own line/bullet); (5) an 'Epitaph' section containing the last (run_ended) whisper text. A 'Named in Passing' section listing first-sight names is included when game.whisperer.names is non-empty.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Construct a Game(seed=1, whisperer=True), call `game.observe_kind('goblin', 'monster')` and `game.observe_kind('rust ring', 'item')` so the names registry is non-empty.",
+        "Call `build_chronicle(game, character='Mara', outcome='died', cause='a creeping goblin')` and capture md.",
+        "Assert md begins with frontmatter (matches `^---\\n` or `^<!--`).",
+        "Parse out the frontmatter and assert the seven required fields are present (seed=1, character='Mara', outcome='died', cause='a creeping goblin', turns >= 0, floor >= 0, whispers >= 1, num_floors >= 1).",
+        "Assert md contains a level-1 heading line that includes 'Mara'.",
+        "Assert md contains a 'Run Summary' section header (case-insensitive match) and bullet items for seed/character/outcome/turns/floor.",
+        "Assert md contains a 'Whispers' section header and the text of at least one whisper from `game.whisperer.whispers`.",
+        "Assert md contains an 'Epitaph' section header and the text of the LAST whisper.",
+        "Assert md contains a 'Named in Passing' section listing 'goblin' or its minted name and 'rust ring' or its minted name."
+      ],
+      "threshold": "Chronicle Markdown contains frontmatter + title + summary + whispers + epitaph + (when applicable) names section, with documented fields."
+    },
+    {
+      "id": "C5",
+      "category": "feature",
+      "description": "`write_chronicle(path_or_dir, game, ...)` writes the Markdown to disk. When given a directory, it computes the deterministic filename `whisperdeep-seed{N}-{character}-{outcome}.md` (with the character name sanitized to filesystem-safe characters), creates the directory if missing, writes the file UTF-8, and returns the absolute path written. When given a full file path, it writes there directly. Permissions / overwrite: an existing file is overwritten (documented), and the function does not error if the destination directory needs to be created.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Use a tmp_path fixture to avoid polluting the repo.",
+        "Construct Game(seed=1, whisperer=True). Call `write_chronicle(tmp_path / 'chronicles', game, character='Mara Vance', outcome='completed')` (note the space in the name).",
+        "Assert the returned path is absolute, exists, and ends with a `.md` extension.",
+        "Assert the filename contains 'mara-vance' or 'mara_vance' (the space is replaced/collapsed) and contains 'seed1' and 'completed'.",
+        "Read the file contents and assert it is the same string returned by `build_chronicle(game, character='Mara Vance', outcome='completed')`.",
+        "Call `write_chronicle` AGAIN with the same args; assert the same path is returned and the file exists (overwrite is OK).",
+        "Try writing to a fresh nested path `tmp_path / 'a' / 'b' / 'chronicles'`; assert the directories are created and the file is written."
+      ],
+      "threshold": "write_chronicle creates dirs as needed, computes a deterministic sanitized filename, returns absolute path, and overwrites cleanly."
+    },
+    {
+      "id": "C6",
+      "category": "feature",
+      "description": "`game.end_run(write=True, chronicles_dir=PATH)` causes a chronicle file to actually be written to disk. The returned summary dict's `path` field points at the written file; the file's content matches `build_chronicle(game, ...)`. With `write=False` no file is written and `path` is None.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Construct Game(seed=1, whisperer=True).",
+        "Call `summary = game.end_run(outcome='died', cause='a creeping goblin', character='Mara', write=True, chronicles_dir=tmp_path)`.",
+        "Assert summary['path'] is a string, the file exists at that path, and its size > 0.",
+        "Assert the file content contains 'Mara' and 'a creeping goblin'.",
+        "Construct a fresh Game(seed=2, whisperer=True). Call `game2.end_run(outcome='completed', write=False, chronicles_dir=tmp_path)`.",
+        "Assert summary['path'] is None and no new files appeared in tmp_path beyond the first run's chronicle."
+      ],
+      "threshold": "end_run honors write/chronicles_dir; write=False writes nothing; write=True returns a real path."
+    },
+    {
+      "id": "C7",
+      "category": "feature",
+      "description": "Player-named character: a `--name` CLI flag (or equivalent) sets the character name surfaced in the chronicle. When the flag is absent, a deterministic default name is derived from the seed (e.g., 'wanderer-seed-1', 'pilgrim-seed-1', or a similar documented pattern). Two runs with the same seed and no --name flag produce the same default character name. The name is sanitized for filesystem use before becoming part of the filename (alphanumeric + `-` `_`, spaces collapsed to `-`, max length 64).",
+      "testMethod": "integration",
+      "testSteps": [
+        "Run `python -m whisperdeep --help` and verify a flag for character name is documented (e.g., `--name`, `--character`).",
+        "Run `python -m whisperdeep --seed 1 --headless --name 'Mara'` and verify exit 0 and that 'Mara' appears in stdout (the chronicle is also written; if printed-summary content varies, the chronicle file content is the canonical proof).",
+        "Run two times with `--seed 1 --headless` (no --name) and verify the two computed default names are identical (capture stdout or the produced chronicle filename).",
+        "Run `python -m whisperdeep --seed 1 --headless --name 'Mara Vance / Of-the-deep'` and verify the produced chronicle filename contains a sanitized version (no '/' or spaces) and is at most 64 chars in the name segment."
+      ],
+      "threshold": "--name (or equivalent) flag exists; default name is seed-deterministic; filename sanitization works."
+    },
+    {
+      "id": "C8",
+      "category": "feature",
+      "description": "Chronicle outcome enum: `outcome` is one of a documented small set: at minimum {'completed', 'died', 'quit', 'descended_to_bottom'}. The chronicle and frontmatter both reflect the chosen outcome verbatim. Unknown outcomes raise a `ValueError` (or are coerced to a documented sentinel — the choice is documented and tested).",
+      "testMethod": "unit",
+      "testSteps": [
+        "Construct Game(seed=1, whisperer=True).",
+        "For each outcome in the documented set ('completed', 'died', 'quit', 'descended_to_bottom'), call `build_chronicle(game, character='X', outcome=O)` (use a fresh game per call OR document that build_chronicle is pure and accepts re-calls).",
+        "Assert the produced markdown contains the outcome string in both the frontmatter and the Run Summary section.",
+        "Call `build_chronicle(game, character='X', outcome='nonsense_value')`; assert it either raises ValueError OR produces output containing a documented coerced/sanitized value (the implementation chooses; the test asserts the documented behavior)."
+      ],
+      "threshold": "Documented outcome enum is honored; unknown outcomes follow documented behavior."
+    },
+    {
+      "id": "C9",
+      "category": "feature",
+      "description": "Whisperer.summarize_run() (or a `chronicle.summarize_run(game)` function) returns a JSON-serializable dict suitable for cross-run meta-memory consumption. Required keys: seed, character, outcome (or null if not yet ended), turns, floor, num_floors, whispers (count), names (the first_sight registry as a dict), and ended (bool). The dict round-trips through `json.dumps`/`json.loads` without loss.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Construct Game(seed=1, whisperer=True). Call `game.observe_kind('goblin', 'monster')`.",
+        "Call `game.whisperer.summarize_run(game)` (or `chronicle.summarize_run(game)`); capture summary dict.",
+        "Assert all required keys are present with the right types: seed:int, character:str-or-None, outcome:str-or-None, turns:int, floor:int, num_floors:int, whispers:int, names:dict, ended:bool.",
+        "Assert summary['names']['goblin'] is a non-empty string (the minted name).",
+        "Assert summary['ended'] is False before end_run is called.",
+        "Call `game.end_run(outcome='died', cause='x', character='Mara', write=False)` and re-summarize; assert summary['ended'] is True and summary['outcome']=='died' and summary['character']=='Mara'.",
+        "Assert `json.dumps(summary)` succeeds and `json.loads(json.dumps(summary)) == summary`."
+      ],
+      "threshold": "summarize_run returns a JSON-round-trippable dict with all documented keys; reflects pre/post end_run state correctly."
+    },
+    {
+      "id": "C10",
+      "category": "feature",
+      "description": "A new prose pool entry tag/section provides at least 8 distinct EPITAPH-style entries. These are either (a) a new top-level key 'epitaph' in `prose_pool.json`, OR (b) entries inside the existing 'run_ended' key that are tagged or annotated as epitaphs. The Whisperer's run_ended handler draws specifically from these epitaph entries when producing the run-ending whisper. Sprint-7's existing run_ended entries are preserved (no regression).",
+      "testMethod": "unit",
+      "testSteps": [
+        "Locate `whisperdeep/prose_pool.json`; load it.",
+        "Assert there is either a top-level 'epitaph' key with >= 8 distinct non-empty string entries, OR the existing 'run_ended' entries number >= 8 + the Sprint-7 baseline (i.e., the Sprint-10 set is >= 8 distinct epitaph entries on top of preservation).",
+        "Verify total distinct entries across the canonical event types is >= 80 (Sprint-8 baseline was 90; we expect 90 + new epitaph entries minus none = >= 80 floor).",
+        "Construct a Whisperer + OfflineAdapter(seed=1) and publish 8 distinct run_ended events on different turns (one per turn). Assert the produced texts include at least 4 distinct strings — i.e., the pool actually rotates rather than emitting the same string repeatedly."
+      ],
+      "threshold": ">= 8 epitaph-style entries available; Sprint-7/8 pool not regressed; rotation is observable."
+    },
+    {
+      "id": "C11",
+      "category": "integration",
+      "description": "CLI integration: `python -m whisperdeep --seed N --headless` writes a chronicle to the chronicles directory by default at the end of the headless flow. New CLI flags exist: `--chronicles-dir PATH` (override the default `./chronicles/`), `--no-chronicle` (suppress writing the file, but still publish run_ended and produce the epitaph whisper), `--name NAME` (or equivalent character flag), and `--chronicle-no-timestamp` (suppress the timestamp line for deterministic test diffs). `--help` lists each flag.",
+      "testMethod": "integration",
+      "testSteps": [
+        "Run `python -m whisperdeep --help` and verify mention of: a chronicles dir flag, a no-chronicle flag, a name flag, and a no-timestamp flag.",
+        "Run `python -m whisperdeep --seed 1 --headless --chronicles-dir TMP --name Mara` (TMP is a tmp directory). Assert exit 0 and that exactly one .md file appears in TMP whose name contains 'mara'.",
+        "Open the file: assert it contains 'Mara' and at least one whisper text.",
+        "Run `python -m whisperdeep --seed 1 --headless --chronicles-dir TMP2 --no-chronicle`; assert exit 0 and TMP2 is empty (no .md file created).",
+        "Run `python -m whisperdeep --seed 1 --headless --no-whisperer --chronicles-dir TMP3` and assert one of (a) no chronicle is written (documented), or (b) a minimal grid-only chronicle is written with no whispers section. The behavior must be documented and tested either way."
+      ],
+      "threshold": "CLI writes chronicles by default with --chronicles-dir; --no-chronicle suppresses; --name flows through; --no-whisperer behavior is documented."
+    },
+    {
+      "id": "C12",
+      "category": "determinism",
+      "description": "Chronicle determinism: with `--seed N --headless --chronicle-no-timestamp` and the offline adapter, two independent processes produce a byte-identical chronicle Markdown file. Two different seeds produce different chronicle content (the difference may be in the title/whispers/names sections). Without `--chronicle-no-timestamp`, the only line that may differ between two runs is a single 'generated at' line in the frontmatter or a trailing footer.",
+      "testMethod": "integration",
+      "testSteps": [
+        "Run `python -m whisperdeep --seed 11 --headless --chronicles-dir TMP_A --chronicle-no-timestamp --name Mara`. Capture the produced .md file's bytes.",
+        "Run the same command again into TMP_B. Capture the produced .md file's bytes.",
+        "Assert the two byte strings are equal.",
+        "Run with --seed 12 (other args identical) into TMP_C; assert the bytes differ from the seed=11 chronicle.",
+        "Without --chronicle-no-timestamp, run twice with --seed 11; load both files and split on '\\n'; assert at most ONE line differs between them (the timestamp line)."
+      ],
+      "threshold": "Same seed -> identical chronicle bytes (with --chronicle-no-timestamp); different seeds -> different bytes; timestamp is the only nondeterministic line otherwise."
+    },
+    {
+      "id": "C13",
+      "category": "feature",
+      "description": "Chronicle robustness: `build_chronicle` handles edge cases without raising. Specifically: (a) a Game with a Whisperer-disabled mode (`whisperer=False`) — produces a minimal chronicle with no whispers/epitaph sections OR raises a documented, named exception (the choice is documented); (b) a Game with zero whispers (whisperer attached but no events fired) — produces a chronicle with empty Whispers and Epitaph sections (or absent sections, documented); (c) very long whisper text (>2000 chars) — included verbatim or truncated, but never raises; (d) unicode in character name and whispers — round-trips through UTF-8 file write without UnicodeEncodeError.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Construct Game(seed=1, whisperer=False). Call `build_chronicle(game, character='X', outcome='quit')` and assert it either returns a string (non-empty, with at least the title and Run Summary) OR raises a documented exception type. Capture and document which.",
+        "Construct a Game(seed=1, whisperer=True) and immediately (without firing any extra events) detach the whisperer and clear `game.whisperer.whispers = []`. Call build_chronicle; assert the function returns a string with the documented structure (empty whispers section).",
+        "Append a Whisper with 5000 chars of text to game.whisperer.whispers; assert build_chronicle returns without raising and the long content is present (or truncated per documented limit).",
+        "Append a Whisper with text 'the dark exhales — ☾' (em-dash + unicode); call write_chronicle to a tmp path; read back and assert the unicode characters survived round trip."
+      ],
+      "threshold": "build_chronicle handles disabled whisperer, empty whispers, long text, and unicode without raising; behavior is documented."
+    },
+    {
+      "id": "C14",
+      "category": "regression",
+      "description": "Sprint 7 and Sprint 8 contracts are fully preserved. EVENT_TYPES still contains all nine canonical types from Sprint 8 (the original seven + first_sight + room_entered). render_frame(game) is byte-identical with whisperer on vs off (Sprint-8 C6). render_frame_with_whispers still composes grid + panel. CLI flags --no-whisperer, --no-panel, --panel-width, --whisperer, --whisperer-model, --dump-whispers continue to work. The Whisperer's per-turn cap and budget guardrail are not regressed.",
+      "testMethod": "integration",
+      "testSteps": [
+        "Run `pytest tests/test_sprint07.py tests/test_sprint08.py` and verify all tests pass.",
+        "Verify EVENT_TYPES is a superset of {run_started, run_ended, entered_room, killed_monster, low_hp, found_item, descended, first_sight, room_entered}.",
+        "Run `python -m whisperdeep --seed 1 --headless --no-whisperer` twice; assert byte-identical stdout.",
+        "Run `python -m whisperdeep --seed 1 --headless --no-panel` and assert the panel separator is absent (Sprint-8 C5/C14 behavior).",
+        "Run `python -m whisperdeep --seed 1 --headless --dump-whispers W.json --no-chronicle` and assert W.json is non-empty."
+      ],
+      "threshold": "Sprint-7 and Sprint-8 tests pass; EVENT_TYPES superset preserved; render_frame byte-equality preserved; existing CLI flags unchanged."
+    },
+    {
+      "id": "C15",
+      "category": "regression",
+      "description": "Sprints 1-2 functionality is preserved. The Sprint-2 dungeon frame is byte-deterministic with `--no-whisperer`; the documented glyphs (`#`, `.`, `+`, `<`, `>`, `@`) appear; existing pytest tests from prior sprints all pass.",
+      "testMethod": "integration",
+      "testSteps": [
+        "Run `pytest tests/test_sprint01.py tests/test_generator.py tests/test_game.py` and verify the full prior test suite passes.",
+        "Run `python -m whisperdeep --seed 1 --headless --no-whisperer` twice; verify byte-identical stdout.",
+        "Run with two different seeds and verify the grids differ.",
+        "Verify the canonical glyphs (`#`, `.`, `+`, `>`, `@`) appear in the seed=1 frame."
+      ],
+      "threshold": "All prior sprint tests pass; Sprint-2 determinism + glyph contract preserved."
+    },
+    {
+      "id": "C16",
+      "category": "tests",
+      "description": "Automated test suite includes >= 12 NEW tests targeting Sprint 10 functionality. They cover at minimum: chronicle module importability (C1), end_run lifecycle hook + idempotency (C2), epitaph whisper on run_ended (C3), Markdown schema with frontmatter/title/summary/whispers/epitaph (C4), write_chronicle disk semantics + filename sanitization (C5), end_run write=True/False round trip (C6), --name flag and seed-deterministic default name (C7), outcome enum (C8), summarize_run dict (C9), prose pool epitaph extension (C10), CLI integration (C11), chronicle determinism with timestamp suppression (C12), edge-case robustness (C13). All tests pass with no API keys and no network.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Locate test files under `tests/` whose names reference 'sprint10', 'chronicle', 'epitaph', or 'end_run'.",
+        "Count distinct `test_*` function definitions in those files; assert the count is >= 12.",
+        "Verify each scenario above is covered by at least one named test (grep test names + assertion content).",
+        "Run `pytest tests/` with no API keys set and assert all tests pass.",
+        "Verify no Sprint-10 test imports `requests`, `httpx`, `urllib.request`, `anthropic`, or `openai` at module top-level."
+      ],
+      "threshold": ">= 12 distinct Sprint-10 test functions, all passing, covering each listed scenario; no network calls."
+    },
+    {
+      "id": "C17",
+      "category": "documentation",
+      "description": "Documentation (README.md and/or docs/) describes Sprint 10: the chronicle Markdown schema (frontmatter fields, required sections), the new CLI flags (--name, --chronicles-dir, --no-chronicle, --chronicle-no-timestamp), the run-end lifecycle (`Game.end_run`, RUN_ENDED publication, epitaph whisper), the chronicle filename pattern + sanitization rule, and the summarize_run hook (described as the seam Sprint 9 will read from). At least one example chronicle excerpt or template is included so future contributors know what 'good' looks like.",
+      "testMethod": "static",
+      "testSteps": [
+        "Open README.md and any sprint-relevant docs in `docs/`.",
+        "Verify a section describes the chronicle Markdown schema (frontmatter fields, required sections).",
+        "Verify a section documents the new CLI flags (--name/--character, --chronicles-dir, --no-chronicle, --chronicle-no-timestamp).",
+        "Verify a section describes Game.end_run and its outcome enum.",
+        "Verify a section describes the chronicle filename pattern and sanitization rule.",
+        "Verify a section describes summarize_run() as the documented seam for Sprint 9 meta-memory.",
+        "Verify at least one example chronicle excerpt (real Markdown sample) is shown."
+      ],
+      "threshold": "All six documentation topics are present with an example excerpt."
+    },
+    {
+      "id": "C18",
+      "category": "code-quality",
+      "description": "Layering invariants from Sprints 7-8 are preserved. The chronicle module imports only from stdlib + whisperdeep.events + whisperdeep.whisperer (Whisper / Whisperer types) + whisperdeep.world + whisperdeep.game (Game type), and does NOT import from whisperdeep.llm or any concrete provider adapter module. whisperdeep/events.py and whisperdeep/llm.py do not gain imports from chronicle. EVENT_TYPES change in this sprint is purely additive (no original names removed or renamed). The chronicle filename sanitization is a small pure helper with documented rules.",
+      "testMethod": "static",
+      "testSteps": [
+        "Open whisperdeep/chronicle.py (or the documented module location). Verify (via grep or AST) it imports at most: stdlib, typing, whisperdeep.events, whisperdeep.whisperer (Whisper/Whisperer types), whisperdeep.world (World), whisperdeep.game (Game).",
+        "Verify the chronicle module does NOT import from whisperdeep.llm directly.",
+        "Verify whisperdeep/events.py and whisperdeep/llm.py have NOT acquired imports from whisperdeep.chronicle.",
+        "Verify EVENT_TYPES still contains all nine names from Sprint 8 (original seven + first_sight + room_entered) and any newly added name is appended, never substituted.",
+        "Verify a small `_sanitize_filename` (or named equivalent) helper is present, is pure (no I/O), and has at least 3 unit tests covering: spaces -> dashes, slashes/backslashes removed, length cap honored."
+      ],
+      "threshold": "Layering invariants hold: chronicle imports stay above llm; events/llm modules do not depend on chronicle; EVENT_TYPES change is additive; sanitizer is pure and tested."
+    },
+    {
+      "id": "C19",
+      "category": "behavior",
+      "description": "Per-turn cap and budget guardrail from Sprints 7-8 are not regressed by the new run_ended path. Even when run_ended fires on the same turn as other events, the Whisperer still respects its per-turn cap (default 3) — but the epitaph whisper is given priority OR is documented as exempt from the per-turn cap (the behavior must be documented and tested). The budget exhaustion path still degrades gracefully to the offline fallback for the epitaph if the primary adapter is over budget.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Construct Whisperer + OfflineAdapter(seed=1), per_turn_cap=3.",
+        "Publish 3 first_sight events on turn=5 (saturating the per-turn cap).",
+        "Then publish an Event(type='run_ended', payload={'outcome':'died'}, turn=5) on the SAME turn.",
+        "Document and verify ONE of: (a) the run_ended whisper IS produced (epitaph is exempt), with the whispers list now containing 4 whispers for turn=5; OR (b) the run_ended whisper is NOT produced (cap honored), with the whispers list still at 3; OR (c) end_run forces an epitaph appendix even if the cap was reached. Whichever behavior the implementation chooses, the docstring on Whisperer (or chronicle.py) MUST describe it and the test asserts that documented behavior.",
+        "Construct a Whisperer with budget=1 (so the very first whisper exhausts it). Publish run_started, then publish run_ended. Assert the run_ended whisper is produced via the fallback adapter (fallback=True) and is non-empty."
+      ],
+      "threshold": "Documented run_ended-vs-cap behavior holds; budget exhaustion still produces an epitaph via fallback."
+    },
+    {
+      "id": "C20",
+      "category": "feature",
+      "description": "Chronicles directory hygiene: when many runs accumulate, the implementation does not silently overwrite different runs into the same filename. Specifically: two consecutive end_run calls with DIFFERENT seeds (or DIFFERENT outcomes, or DIFFERENT character names) produce two distinct chronicle files in the same directory. Two end_run calls on the SAME (seed, character, outcome) DO overwrite into the same filename (documented behavior). The chronicle directory exists and is writable; an empty/new directory is created if needed.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Use tmp_path. Construct Game(seed=1, whisperer=True); call end_run(write=True, chronicles_dir=tmp_path, character='Mara', outcome='died'). Capture path1.",
+        "Construct Game(seed=2, whisperer=True); call end_run(write=True, chronicles_dir=tmp_path, character='Mara', outcome='died'). Capture path2.",
+        "Assert path1 != path2 (different seeds yield different files).",
+        "Construct Game(seed=1, whisperer=True) again; call end_run(write=True, chronicles_dir=tmp_path, character='Mara', outcome='died'). Capture path3.",
+        "Assert path3 == path1 (same triple => same filename), the file exists, and was overwritten (mtime is newer or content equals the rebuilt chronicle).",
+        "Construct Game(seed=1, whisperer=True); call end_run(write=True, chronicles_dir=tmp_path, character='Devon', outcome='died'). Capture path4.",
+        "Assert path4 != path1 (different character => different file).",
+        "Confirm the chronicles_dir contains exactly 3 distinct .md files at the end."
+      ],
+      "threshold": "Filename uniqueness keyed on (seed, character, outcome); same triple overwrites; different triples coexist."
+    }
+  ],
+  "outOfScope": [
+    "Cross-run persistent meta-memory: a JSON file the Whisperer reads at run start to recall prior deaths and recurring legends. That is Sprint 9's job (currently unmerged); Sprint 10 only EXPOSES the seam (summarize_run()).",
+    "Director-mode procgen nudges (Sprint 9). The chronicle reports the run as it played out; it does not modify generation.",
+    "Themed dungeon archetypes & color palette swaps (Sprint 11).",
+    "Rebindable keys, help overlay, ambient audio, leaderboard (Sprint 12).",
+    "Real save/load slots, mid-run save & quit, anti-save-scumming machinery (Sprint 6, currently unmerged). end_run is invoked explicitly by the CLI / tests, not by a death-by-combat code path.",
+    "Combat, HP, damage, FOV, items, monster AI (Sprints 3-5, currently unmerged). The chronicle formats whatever data is available; absent sections are gracefully omitted.",
+    "Streaming LLM responses; the adapter contract remains single-shot prompt -> single-shot completion.",
+    "Real network calls in CI / automated tests; provider adapters remain stubbed and gated.",
+    "Curses / TUI / color codes / ANSI styling in the chronicle. The chronicle is plain UTF-8 Markdown.",
+    "Uploading / syncing chronicles to a remote service. They are local files only.",
+    "Validating the Markdown against an external schema linter — the schema is enforced by Sprint-10 tests, not by an external tool."
+  ],
+  "regressionSprints": [1, 2, 7, 8],
+  "deliverables": [
+    "A chronicle module (whisperdeep/chronicle.py preferred) exposing build_chronicle(game, *, character, outcome, cause) -> str and write_chronicle(path_or_dir, game, *, character, outcome, cause) -> str, with documented signatures and docstrings.",
+    "A Game.end_run(*, outcome, cause, character, write, chronicles_dir) -> dict lifecycle hook that publishes RUN_ENDED on the bus exactly once (idempotent), optionally writes the chronicle file, and returns a small summary dict.",
+    "Whisperer reaction to RUN_ENDED that produces exactly one epitaph whisper drawn from a dedicated epitaph pool subset, appended last to the whisper log.",
+    "A summarize_run(game) helper (on Whisperer or in chronicle.py) returning a JSON-round-trippable dict with seed/character/outcome/turns/floor/num_floors/whispers/names/ended fields — documented as the seam Sprint 9's meta-memory will read from.",
+    "Prose pool extension: at least 8 distinct epitaph entries (either as a new 'epitaph' key or as tagged entries inside 'run_ended'), preserving all Sprint-7/8 entries.",
+    "CLI flags: --name (or --character), --chronicles-dir PATH, --no-chronicle, --chronicle-no-timestamp. All documented in --help.",
+    "A pure _sanitize_filename helper enforcing the documented filename rule (alphanumeric + - _, spaces collapsed, max 64 chars), with unit tests.",
+    ">= 12 NEW pytest tests under tests/ covering the scenarios in C16, all passing with no API keys and no network access.",
+    "README.md / docs updates covering: chronicle Markdown schema with example excerpt, new CLI flags, Game.end_run lifecycle and outcome enum, filename pattern and sanitization rule, and summarize_run as the Sprint-9 seam.",
+    "Commits following `harness(sprint-10): description [C-ID]` convention."
+  ]
+}
