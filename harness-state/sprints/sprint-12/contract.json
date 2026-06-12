@@ -1,0 +1,362 @@
+{
+  "sprintNumber": 12,
+  "sprintName": "Polish: Keybinds, Help, Sound, Leaderboard",
+  "theme": "Final polish sprint: rebindable key/command system (F12), in-game help overlay (F12), opt-in ambient/SFX hooks (F13), daily seed + local leaderboard + shareable run badges (F14), README & shareable run output, and an end-of-run summary that ties everything together",
+  "features": ["F12", "F13", "F14"],
+  "dependsOn": [6, 11],
+  "summary": "Sprint 12 is the FINAL polish sprint for Whisperdeep. It ships four loosely-coupled but related pieces of player-facing surface area on top of the playable Sprints 1-2-7-8-10-11 core that is currently in tree.\n\n(F12 — Keybinds & Help) A real keybinding & command system: a small ``KeyBindings`` registry that maps named **commands** (move_west, move_east, move_north, move_south, move_nw, move_ne, move_sw, move_se, wait, descend, ascend, quit, help, redraw) to one or more keys; sensible defaults that include both vi-keys (h/j/k/l/y/u/b/n) and arrow-key escape sequences (so the existing interactive loop keeps working); load/save from a documented config file (``~/.whisperdeep/keys.json`` or ``$WHISPERDEEP_KEYS``); a `:`-prefixed in-game **command prompt** for power users (e.g. ``:quit``, ``:help``, ``:descend``, ``:rebind move_west a``); and an in-game **help overlay** triggered by `?` (or the `help` command) that prints the current bindings + a short legend in a Markdown-ish formatted block written to stdout. The interactive loop in cli.py is upgraded to consult this registry instead of its hard-coded ``moves`` dict, but the headless contract is preserved exactly.\n\n(F13 — Sound & ambient audio) A pluggable, OPT-IN, terminal-friendly **audio adapter** layer. Audio is OFF by default (this is a terminal game; tests run in CI with no audio devices). A new module ``whisperdeep/audio.py`` defines an ``AudioAdapter`` Protocol/ABC with ``play(cue: str)`` and ``stop()`` methods, a ``NullAudioAdapter`` (default — silent), and a ``LogAudioAdapter`` (test/debug — records cue names to an in-memory list). A small **cue registry** maps named cues (``footstep``, ``bump``, ``descend``, ``ascend``, ``low_hp``, ``run_started``, ``run_ended``, ``epitaph``, ``first_sight``) to event types so the existing event bus can drive audio without coupling. Game gains an opt-in ``audio: AudioAdapter | None`` slot; CLI flags ``--audio CHOICE`` (``null`` (default) | ``log`` | future ``terminal-bell``) wire it. Tests use ``LogAudioAdapter`` to assert cue ordering. NO real audio backend (no playsound/pyaudio/winsound) ships in this sprint — the architecture is shipped, real backends are a future-sprint concern (and explicitly out of scope).\n\n(F14 — Daily seed + leaderboard + badges) ``--daily`` runs use a date-derived seed (``YYYYMMDD`` interpreted as int, with a documented epoch); ``--seed-string TEXT`` accepts a human-readable shareable seed string and hashes it deterministically to an int seed. Run lifecycle gains a small **local leaderboard** persisted as ``leaderboard.json`` under a configurable directory (default ``./leaderboard.json``; CLI ``--leaderboard PATH`` overrides; ``--no-leaderboard`` disables). End-of-run, when the chronicle is also written, the score (``floors_reached * 100 + turns``) plus seed, name, archetype-id-of-floor-0, and ISO timestamp are appended; the file is read+sorted+capped at 50 entries and re-written. A new ``--print-leaderboard`` CLI prints the top-10 to stdout and exits. A **shareable run badge** is generated alongside the chronicle: a single-line ASCII string of the form ``WHISPERDEEP seed=<S> floors=<F> turns=<T> archetype=<A> v1`` plus a 6-char checksum; written to ``<chronicle>.badge.txt`` (or printed via ``--print-badge``). README.md is created/refreshed with: install / run / keybinds / config / daily-seed / leaderboard / badge sections.\n\n(End-of-run summary) The interactive loop, when it exits via ``quit`` or end-of-run, prints a small **run summary** to stdout: name, seed, floors-reached, turns, score, archetype-of-floor-0, badge string, chronicle path (when written), leaderboard rank (when written). The summary is also exposed as a public function ``build_run_summary(game, *, name, fixed_timestamp=None) -> str`` (testable in isolation).\n\nDeterminism, layering, and the no-network test posture established in Sprints 7/8/10/11 are preserved. Sprints 3 (FOV+combat), 4 (items), 5 (monsters), 6 (save/load + run-summary screen — Sprint-6 itself is NOT in tree, so the **run summary** here is the lightweight in-process replacement), and 9 (director nudges + meta-memory) remain not-in-tree; this sprint must NOT depend on any of them.",
+  "assumptions": [
+    "Sprint 11 is merged in tree and PASSED 17/17 (handoff + eval-report confirm): archetypes module with 5 archetypes, World assigns Floor.archetype, render_frame applies glyph overrides, CLI --archetype + --list-archetypes, prose pool extended with archetype-tagged entries, palette descriptors, colorize_frame helper, 174/174 tests passing.",
+    "Sprints 1 (foundation), 2 (dungeon generation), 7 (whisperer adapter + event bus), 8 (whispers in play / panel + first_sight + room_entered), 10 (chronicle + epitaph), and 11 (archetypes + palettes) are all merged. Sprints 3, 4, 5, 6, 9 are NOT in tree. Sprint 12 must NOT depend on FOV, combat, items, monster spawn machinery, save/load, or director nudges.",
+    "The four feature pillars (keybinds, audio, leaderboard/daily/badge, run summary) live in their own modules: whisperdeep/keybinds.py, whisperdeep/audio.py, whisperdeep/leaderboard.py, whisperdeep/summary.py. Each module is small, importable in isolation, and respects the layering invariants: stdlib + typing + (game / events / chronicle / archetypes types via TYPE_CHECKING where needed). NONE of these new modules import llm.py, render.py, or panel.py.",
+    "Audio is OFF by default. The default --audio choice is 'null'; tests use --audio log and the LogAudioAdapter to verify cue ordering. NO real audio library is added as a project dependency. The Sprint-12 audio adapter is a Protocol + Null + Log; future sprints can add a winsound / playsound backend without changing the public interface.",
+    "Determinism: with --seed N the leaderboard / chronicle / badge / summary are byte-deterministic (modulo timestamp, which can be pinned via --chronicle-fixed-timestamp / --leaderboard-fixed-timestamp / a Python-API kwarg). Two subprocess invocations with the same flags + same fixed timestamp produce byte-identical leaderboard.json content (after sorting + capping) and byte-identical badge / summary strings. With --daily but no fixed-timestamp injection, the run is deterministic FOR THE GIVEN DATE (the date is read once at startup and recorded in metadata).",
+    "--seed-string TEXT is hashed via a documented stable algorithm (SHA-256 of the UTF-8 bytes, take the first 8 bytes as an unsigned int, mod 2**31) — same TEXT yields the same seed forever, on every Python version on every platform. The hash is implemented in the leaderboard or a small helper module; it must NOT use Python's built-in `hash()` (which is salted per-process).",
+    "--daily computes the seed as an int derived from today's UTC date (``int(YYYYMMDD)`` is acceptable). A --daily-date ISO override exists for tests so the daily seed is reproducible in CI. The chronicle metadata gains a 'daily: true' field when --daily was used.",
+    "Local leaderboard is a JSON array stored at the configured path (default ``leaderboard.json`` under CWD; CLI ``--leaderboard PATH`` overrides). Each entry is a dict with required keys: seed (int), name (str), floors_reached (int), turns (int), score (int), archetype (str), timestamp (ISO-8601 Z). The file is auto-created if missing. Entries are sorted by score DESC, then by timestamp ASC for ties, and capped at 50. Reads tolerate a missing or malformed file (start fresh, log a warning).",
+    "Run badge format is exactly: ``WHISPERDEEP seed=<S> floors=<F> turns=<T> archetype=<A> v1 <CHK>`` where <CHK> is a 6-character lowercase hex checksum derived from sha256 of the rest of the line. The badge is documented and reversible (a future tool can verify the checksum). Two runs with identical (seed, floors, turns, archetype) produce identical badges.",
+    "Keybindings are a small public registry. The default mapping covers movement (h/j/k/l/y/u/b/n + arrow-key escape sequences), stairs (>, <), wait (.), help (?), redraw (Ctrl-L is acceptable but optional), quit (q). Loading from ``$WHISPERDEEP_KEYS`` / ``--keys PATH`` overrides any default; unknown command names raise a clear error.",
+    "The `:`-command prompt is parsed in the interactive loop. A line starting with ':' is treated as a command (e.g. ``:quit``, ``:help``, ``:descend``, ``:bind move_west a``, ``:bindings``). Unknown commands print a clear error and do NOT advance the turn. This must NOT crash the headless code path (which never sees user input).",
+    "The end-of-run summary helper ``build_run_summary(game, *, name, fixed_timestamp=None)`` returns a multi-line plain string. The summary is also written to stdout at the end of an interactive run AND at the end of a headless run when --summary is passed (default-on for headless when --chronicle is set; off otherwise). The summary is determinism-friendly via the same fixed-timestamp injection used by the chronicle.",
+    "Pytest remains the test runner under tests/. Tests must NOT make network calls or open audio devices. Existing 174 tests must continue to pass. New Sprint-12 tests live in tests/test_sprint12.py.",
+    "Documentation: README.md is created (or fully refreshed) at the repo root with install / run / controls / config / daily / leaderboard / badge / Sprint-12 status sections. docs/whisperdeep.md gains a Sprint-12 status banner and dedicated subsections for keybinds, audio, leaderboard, daily, badge, and run summary. The 'cross-run death legends' deferral note from Sprint 10 is preserved.",
+    "Layering: keybinds.py / audio.py / leaderboard.py / summary.py import only stdlib + typing + (game / events / chronicle / archetypes types via TYPE_CHECKING where needed). They do NOT import whisperdeep.llm, whisperdeep.render, whisperdeep.panel, or whisperdeep.whisperer. Game.py and CLI.py MAY import them. EVENT_TYPES is unchanged in this sprint (no new event types). TileKind is unchanged."
+  ],
+  "criteria": [
+    {
+      "id": "C1",
+      "category": "code-structure",
+      "description": "A new ``whisperdeep/keybinds.py`` module exists and is importable. It exposes at least: (a) a constant ``COMMANDS`` (tuple/frozenset of command names) including at minimum ``move_west``, ``move_east``, ``move_north``, ``move_south``, ``move_nw``, ``move_ne``, ``move_sw``, ``move_se``, ``wait``, ``descend``, ``ascend``, ``quit``, ``help``; (b) a public ``KeyBindings`` class/dataclass with a ``mapping`` (dict[str (key) -> str (command name)]), a ``DEFAULTS`` class attribute or factory exposing the default mapping, and methods ``bind(command, key)``, ``unbind(key)``, ``command_for(key) -> str | None``, ``keys_for(command) -> tuple[str, ...]``; (c) public functions ``load_keybindings(path: str | None = None) -> KeyBindings`` and ``save_keybindings(kb: KeyBindings, path: str) -> None``; (d) a public function ``format_help_overlay(kb: KeyBindings) -> str`` that returns a multi-line plain-text help block listing every command and its bound keys.",
+      "testMethod": "static",
+      "testSteps": [
+        "Run ``python -c \"from whisperdeep.keybinds import COMMANDS, KeyBindings, load_keybindings, save_keybindings, format_help_overlay\"`` and confirm exit code 0.",
+        "Inspect COMMANDS: it contains at least the 13 listed command names.",
+        "Inspect KeyBindings: it has bind, unbind, command_for, keys_for as callable methods.",
+        "Inspect KeyBindings.DEFAULTS: it includes vi-keys h/j/k/l/y/u/b/n bound to the eight movement directions, ``.`` to wait, ``>`` to descend, ``<`` to ascend, ``q`` to quit, ``?`` to help.",
+        "Inspect imports in keybinds.py via AST: only stdlib + typing; NO ``from .llm``, ``from .render``, ``from .panel``, ``from .whisperer``."
+      ],
+      "threshold": "Module importable; COMMANDS + KeyBindings + load/save + format_help_overlay exist; defaults cover vi-keys + stairs + wait + quit + help; layering preserved."
+    },
+    {
+      "id": "C2",
+      "category": "feature",
+      "description": "Keybindings round-trip through a JSON config file. ``save_keybindings(kb, path)`` writes a JSON object with at minimum a top-level ``bindings`` mapping of {key_string: command_name}. ``load_keybindings(path)`` reads such a file and returns a KeyBindings whose bindings exactly match. Loading a path that does not exist returns the DEFAULTS (no error). Loading a malformed file raises a clear ValueError or returns DEFAULTS with a documented warning behavior. Unknown command names in a config file raise a ValueError that names the offending entry.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Build a KeyBindings, call ``kb.bind('move_west', 'a')``; save to a tmp_path.",
+        "Read the file as JSON; assert it is a dict with a 'bindings' key whose value contains 'a': 'move_west'.",
+        "Call ``load_keybindings(tmp_path)`` and assert the returned KeyBindings.command_for('a') == 'move_west'.",
+        "Call ``load_keybindings(tmp_path / 'does_not_exist.json')``; assert it returns a KeyBindings equal to DEFAULTS without raising.",
+        "Write a malformed JSON file ('{not valid'); call load_keybindings; assert it either raises ValueError OR returns DEFAULTS with a documented warning (per the implementation's choice, documented in the module docstring).",
+        "Write a JSON config with bindings: {'a': 'not_a_real_command'}; call load_keybindings; assert it raises ValueError mentioning 'not_a_real_command'."
+      ],
+      "threshold": "Save+load round-trips bindings; missing file returns DEFAULTS; malformed file raises or warns per docs; unknown commands raise."
+    },
+    {
+      "id": "C3",
+      "category": "feature",
+      "description": "An in-game help overlay is available via the ``?`` key OR the ``:help`` command. ``format_help_overlay(kb)`` returns a multi-line string that lists every command in COMMANDS along with the keys bound to it (or '(unbound)'). The output contains a header line (e.g. starts with '=' / '#' / 'Whisperdeep keybindings'), one row per command, and is plain ASCII (no ANSI). The interactive loop, when it sees the help key/command, prints this string to stdout. A new CLI flag ``--print-help-overlay`` prints the help-overlay text and exits 0 without starting a run.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Call ``format_help_overlay(KeyBindings.DEFAULTS_KB())`` (or equivalent); assert the result is a non-empty multi-line string.",
+        "Assert every command name in COMMANDS appears as a substring of the result.",
+        "Assert at least one of the default keys (e.g. 'h' for move_west) appears as a substring of the result.",
+        "Assert the result contains NO ESC characters (\\x1b).",
+        "Run ``python -m whisperdeep --print-help-overlay`` in a subprocess; assert exit 0 and stdout contains 'move_west' (or all the command names).",
+        "Verify the help overlay's first non-empty line is a clear header (matches a documented prefix like 'Whisperdeep' or '=' or '#')."
+      ],
+      "threshold": "format_help_overlay enumerates all commands + bindings; --print-help-overlay works; output is plain ASCII."
+    },
+    {
+      "id": "C4",
+      "category": "feature",
+      "description": "CLI gains a ``--keys PATH`` flag that loads a keybindings JSON file at startup; bindings then drive the interactive loop. A second CLI flag ``--list-bindings`` prints the active bindings (one line per command) and exits 0 without starting a run. Both flags appear in ``--help``. An invalid PATH (unreadable / unparseable / referencing unknown commands) exits with a non-zero status code and a clear error message naming the file and the bad entry.",
+      "testMethod": "integration",
+      "testSteps": [
+        "Run ``python -m whisperdeep --help`` and verify the help text mentions both ``--keys`` and ``--list-bindings``.",
+        "Run ``python -m whisperdeep --list-bindings``; assert exit 0 and stdout contains every command name in COMMANDS.",
+        "Write a keys.json with valid bindings to a tmp file. Run ``python -m whisperdeep --keys TMP/keys.json --list-bindings``; assert exit 0 and stdout reflects the loaded bindings (the custom binding appears).",
+        "Write an invalid keys.json with an unknown command. Run ``python -m whisperdeep --keys TMP/bad.json --list-bindings``; assert exit code != 0 and stderr mentions the bad entry."
+      ],
+      "threshold": "--keys + --list-bindings work; --help lists them; bad config exits non-zero with a clear error."
+    },
+    {
+      "id": "C5",
+      "category": "code-structure",
+      "description": "A new ``whisperdeep/audio.py`` module exists and is importable. It exposes at least: (a) an ``AudioAdapter`` Protocol or ABC with at minimum ``play(cue: str) -> None`` and ``stop() -> None``; (b) a ``NullAudioAdapter`` class implementing AudioAdapter that is silent (play and stop are no-ops); (c) a ``LogAudioAdapter`` class implementing AudioAdapter that records cue names to a public ``cues: list[str]`` attribute; (d) a public constant ``CUES`` (tuple of cue names) that includes at minimum ``footstep``, ``bump``, ``descend``, ``ascend``, ``low_hp``, ``run_started``, ``run_ended``, ``epitaph``, ``first_sight``; (e) a public ``EVENT_TO_CUE`` mapping that maps EVENT_TYPES values to cue names where applicable. The module imports only stdlib + typing — NO winsound / playsound / pyaudio / pygame / numpy / requests / urllib.",
+      "testMethod": "static",
+      "testSteps": [
+        "Run ``python -c \"from whisperdeep.audio import AudioAdapter, NullAudioAdapter, LogAudioAdapter, CUES, EVENT_TO_CUE\"`` and confirm exit code 0.",
+        "Verify CUES is a tuple/frozenset that contains the listed 9 cue names.",
+        "Verify EVENT_TO_CUE is a mapping; for at least the events 'descended', 'run_started', 'run_ended', 'epitaph', 'first_sight', 'low_hp' the mapping returns a string in CUES.",
+        "Instantiate NullAudioAdapter; call play('footstep'); call stop(); assert no exception raised.",
+        "Instantiate LogAudioAdapter; call play('footstep'); play('descend'); assert ``adapter.cues == ['footstep', 'descend']``.",
+        "Inspect imports in audio.py via AST: only stdlib + typing; explicitly NOT in the import list: winsound, playsound, pyaudio, pygame, numpy, requests, urllib.",
+        "Verify the module top-level docstring documents that audio is OPT-IN and OFF by default."
+      ],
+      "threshold": "audio.py exposes AudioAdapter + NullAudioAdapter + LogAudioAdapter + CUES + EVENT_TO_CUE; no audio backend deps; layering preserved."
+    },
+    {
+      "id": "C6",
+      "category": "feature",
+      "description": "Game gains an opt-in ``audio: AudioAdapter | None`` attribute (default ``None``). When an audio adapter is wired AND the Whisperer is active, lifecycle / event publication routes the corresponding cue (per EVENT_TO_CUE) to ``audio.play(cue)``. CLI flag ``--audio CHOICE`` (choices include at minimum ``null`` (default) and ``log``) wires the adapter. With ``--audio null``, no cues are emitted (default behavior — silent). With ``--audio log``, cues are recorded; a CLI flag ``--dump-audio PATH`` writes the cues to PATH as a JSON list.",
+      "testMethod": "integration",
+      "testSteps": [
+        "Run ``python -m whisperdeep --help`` and verify the help text mentions ``--audio`` (with documented choices) and ``--dump-audio``.",
+        "Run ``python -m whisperdeep --seed 1 --headless --audio log --dump-audio TMP/cues.json``; assert exit 0 and TMP/cues.json exists.",
+        "Load TMP/cues.json: assert it is a JSON list of strings, length >= 1, each string is in CUES (the spawn run_started cue should land here).",
+        "Run with ``--audio null --dump-audio TMP/cues2.json``; assert TMP/cues2.json is a JSON list of length 0 (Null adapter swallows everything; --dump-audio still writes [] when audio adapter is null OR omits writing — choose and document one).",
+        "Construct a Game with ``audio=LogAudioAdapter()`` directly; trigger end_run; assert the LogAudioAdapter.cues includes 'run_ended' AND 'epitaph' (or their equivalents per EVENT_TO_CUE).",
+        "Verify ``--audio`` choices in --help include 'null' and 'log'."
+      ],
+      "threshold": "--audio + --dump-audio wire the adapter; cues fire on event publication; null is default and silent; layering preserved."
+    },
+    {
+      "id": "C7",
+      "category": "code-structure",
+      "description": "A new ``whisperdeep/leaderboard.py`` module exists and is importable. It exposes at least: (a) a public ``score_for(game) -> int`` that computes ``floors_reached * 100 + turns`` (or a documented variant); (b) a public function ``read_leaderboard(path: str) -> list[dict]`` that returns the parsed entries (empty list if file is missing or malformed, with a documented warning behavior); (c) a public function ``append_entry(path: str, entry: dict) -> list[dict]`` that reads, appends, sorts (by score DESC then timestamp ASC), caps at 50, and writes back; returns the new list; (d) a public function ``build_entry(game, *, name, timestamp) -> dict`` that produces the entry dict with required keys: seed, name, floors_reached, turns, score, archetype, timestamp; (e) a public function ``stable_seed_from_string(s: str) -> int`` that hashes the string deterministically (SHA-256-based) to a 31-bit unsigned int. The module imports only stdlib + typing + (game/archetypes types via TYPE_CHECKING).",
+      "testMethod": "static",
+      "testSteps": [
+        "Run ``python -c \"from whisperdeep.leaderboard import score_for, read_leaderboard, append_entry, build_entry, stable_seed_from_string\"`` and confirm exit code 0.",
+        "Inspect each function for the expected signature (positional args + keyword args per the spec).",
+        "Inspect imports via AST: only stdlib + typing + optional .game/.archetypes via TYPE_CHECKING. NO ``from .llm``, ``from .render``, ``from .panel``, ``from .whisperer``.",
+        "Confirm score_for(game) returns floors_reached*100 + turns for a freshly constructed Game (verify via direct call).",
+        "Confirm stable_seed_from_string('hello') returns the same int when called twice in the same process AND when called in two separate subprocesses (Python's salted hash is NOT used)."
+      ],
+      "threshold": "leaderboard.py module + 5 public APIs exist; layering preserved; SHA-256-based stable seed."
+    },
+    {
+      "id": "C8",
+      "category": "feature",
+      "description": "Local leaderboard persistence works end-to-end. Calling ``append_entry(path, entry)`` on a missing file creates it with a single entry. Calling it repeatedly accumulates entries; the file is sorted by score DESC then timestamp ASC and capped at 50 entries (entries 51+ are dropped). ``read_leaderboard`` on a missing file returns []. ``read_leaderboard`` on a malformed file (e.g. truncated JSON, non-list) returns [] without raising. Each entry on disk has at minimum keys: seed, name, floors_reached, turns, score, archetype, timestamp.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Pick a tmp file path that does not exist; call ``read_leaderboard(path)`` and assert it returns [].",
+        "Build entries via build_entry from a Game (or hand-crafted dicts) and call append_entry 3 times; assert read_leaderboard returns 3 entries with the required keys.",
+        "Append 60 entries with descending fake scores; assert read_leaderboard returns exactly 50 entries (capped).",
+        "Verify the entries are sorted by score DESC; for ties, the older timestamp comes first.",
+        "Write a malformed JSON file to the leaderboard path; call read_leaderboard; assert it returns [] and does NOT raise.",
+        "Write a JSON file containing a non-list (e.g. a dict); call read_leaderboard; assert it returns [] without raising."
+      ],
+      "threshold": "Leaderboard creates / appends / sorts / caps at 50; missing/malformed files tolerated."
+    },
+    {
+      "id": "C9",
+      "category": "feature",
+      "description": "CLI integrates the leaderboard. Flags: ``--leaderboard PATH`` (override default path), ``--no-leaderboard`` (disable), ``--print-leaderboard`` (print top-10 from PATH and exit 0; default path under CWD), ``--leaderboard-fixed-timestamp ISO`` (deterministic test injection). When a chronicle is written (Sprint-10 path), an entry is also appended to the leaderboard UNLESS ``--no-leaderboard`` is set. ``--print-leaderboard`` shows at minimum: rank, name, seed, floors, turns, score, archetype, timestamp.",
+      "testMethod": "integration",
+      "testSteps": [
+        "Run ``python -m whisperdeep --help`` and verify the help text mentions ``--leaderboard``, ``--no-leaderboard``, ``--print-leaderboard``, and ``--leaderboard-fixed-timestamp``.",
+        "Run ``python -m whisperdeep --seed 1 --headless --name Mara --chronicle TMP/c.md --chronicle-fixed-timestamp 2026-06-12T00:00:00Z --leaderboard TMP/lb.json --leaderboard-fixed-timestamp 2026-06-12T00:00:00Z``; assert exit 0; assert TMP/lb.json exists with one entry containing seed=1, name='Mara', and the required keys.",
+        "Run the same command with ``--seed 2``; assert TMP/lb.json now has 2 entries.",
+        "Run with ``--no-leaderboard``; assert TMP/lb.json is unchanged (no new entry).",
+        "Run ``python -m whisperdeep --print-leaderboard --leaderboard TMP/lb.json``; assert exit 0 and stdout contains 'Mara' and 'seed' (or '1' / '2').",
+        "Run ``--print-leaderboard`` against a missing path; assert exit 0 and stdout is empty or a documented 'no leaderboard yet' line."
+      ],
+      "threshold": "CLI leaderboard flags work; chronicle run appends entry; print-leaderboard works; --no-leaderboard suppresses."
+    },
+    {
+      "id": "C10",
+      "category": "feature",
+      "description": "Daily seed and shareable seed strings work. ``--daily`` (with no other --seed) chooses a date-derived seed; ``--daily-date YYYY-MM-DD`` overrides the date for testing. ``--seed-string TEXT`` derives the seed from stable_seed_from_string(TEXT). ``--seed N`` continues to work as before; passing more than one of {--seed, --daily, --seed-string} is an error (clear stderr + non-zero exit). The chronicle metadata block records ``daily: true`` (when --daily was used) and the originating ``seed_string`` (when --seed-string was used).",
+      "testMethod": "integration",
+      "testSteps": [
+        "Run ``python -m whisperdeep --help``; verify it mentions ``--daily``, ``--daily-date``, and ``--seed-string``.",
+        "Run ``python -m whisperdeep --daily --daily-date 2026-06-12 --headless --no-whisperer``; assert exit 0; the rendered output is determined by the date-derived seed.",
+        "Run the same command twice in subprocesses; assert byte-identical stdout (--daily-date pins the seed).",
+        "Run ``python -m whisperdeep --seed-string 'whispergrove' --headless --no-whisperer`` twice in subprocesses; assert byte-identical stdout.",
+        "Run ``python -m whisperdeep --seed 1 --daily --headless``; assert exit code != 0 with a clear error in stderr.",
+        "Run ``python -m whisperdeep --seed-string hello --seed 1 --headless``; assert exit code != 0 with a clear error.",
+        "Verify two different ``--seed-string`` values produce different output (different derived seeds)."
+      ],
+      "threshold": "--daily, --daily-date, --seed-string all work; conflicting flags fail clearly; deterministic for fixed inputs."
+    },
+    {
+      "id": "C11",
+      "category": "feature",
+      "description": "Run badge generation works. A new public function ``build_badge(game, *, name=None) -> str`` returns a single-line ASCII string of the form ``WHISPERDEEP seed=<S> floors=<F> turns=<T> archetype=<A> v1 <CHK>`` where <CHK> is a 6-character lowercase hex checksum from sha256 of the rest of the line. CLI flag ``--print-badge`` prints the badge and exits 0. When ``--chronicle PATH`` is set, a sibling file ``<chronicle>.badge.txt`` is also written (unless ``--no-badge`` is set). Two runs with identical (seed, floors, turns, archetype) produce identical badges.",
+      "testMethod": "integration",
+      "testSteps": [
+        "Import build_badge; call it on a Game; assert the result starts with 'WHISPERDEEP ' and matches the regex ``^WHISPERDEEP seed=\\d+ floors=\\d+ turns=\\d+ archetype=\\w+ v1 [0-9a-f]{6}$``.",
+        "Verify the checksum is the first 6 hex chars of sha256 of the line up through 'v1' (inclusive), per documentation.",
+        "Run ``python -m whisperdeep --seed 1 --headless --print-badge``; assert exit 0 and stdout contains 'WHISPERDEEP seed=1'.",
+        "Run ``python -m whisperdeep --seed 1 --headless --name Mara --chronicle TMP/c.md --chronicle-fixed-timestamp 2026-06-12T00:00:00Z`` (chronicle path is set, --no-badge NOT set). Assert TMP/c.md.badge.txt exists and contains a single line matching the badge regex.",
+        "Re-run the same chronicle command and assert TMP/c.md.badge.txt is byte-identical.",
+        "Run with ``--no-badge`` and assert TMP/c.md.badge.txt is NOT created.",
+        "Run with seed=1 and seed=2; assert the badges differ."
+      ],
+      "threshold": "build_badge produces canonical line + checksum; --print-badge works; sibling .badge.txt written with --chronicle; --no-badge suppresses; deterministic."
+    },
+    {
+      "id": "C12",
+      "category": "feature",
+      "description": "End-of-run summary helper. A public ``build_run_summary(game, *, name=None, fixed_timestamp=None) -> str`` returns a multi-line plain-text summary including: name, seed, floors-reached, turns, score, floor-0 archetype id, badge string, and the ISO timestamp. The summary is printed to stdout at the end of an interactive run and at the end of a headless run when ``--summary`` is passed (or when ``--chronicle`` is set, per the documented default). A ``--no-summary`` flag suppresses it. Determinism: with a fixed_timestamp injection, the summary is byte-identical across two processes for the same (seed, name).",
+      "testMethod": "integration",
+      "testSteps": [
+        "Import build_run_summary; call it on a Game with name='Mara', fixed_timestamp='2026-06-12T00:00:00Z'; assert the result is a non-empty multi-line string starting with a documented header (e.g., 'RUN SUMMARY' or '== Run Summary ==').",
+        "Assert the summary contains 'Mara', 'seed', '1' (the seed value), 'score', and a substring matching the badge regex.",
+        "Run ``python -m whisperdeep --help``; verify ``--summary`` and ``--no-summary`` are documented.",
+        "Run ``python -m whisperdeep --seed 1 --headless --summary --name Mara --chronicle-fixed-timestamp 2026-06-12T00:00:00Z`` twice in subprocesses; assert the summary blocks (the section starting at the documented header to end-of-output) are byte-identical.",
+        "Run ``python -m whisperdeep --seed 1 --headless --no-summary``; assert no summary header appears in stdout.",
+        "Run with ``--seed 1`` then ``--seed 2``; assert the summaries differ in at least the seed line."
+      ],
+      "threshold": "build_run_summary is callable + deterministic; CLI --summary / --no-summary work; summary embeds badge + score + archetype."
+    },
+    {
+      "id": "C13",
+      "category": "feature",
+      "description": "The interactive loop honors keybindings + the `:`-command prompt. The ``moves`` hard-coded dict in cli.run_interactive is replaced by a dispatcher that consults a KeyBindings instance. A line starting with ``:`` is interpreted as a command name (e.g. ``:quit``, ``:help``, ``:descend``, ``:ascend``, ``:bindings``, ``:summary``). The ``?`` key prints the help overlay. Pressing ``q`` (or ``:quit``) ends the run; the end-of-run summary is printed before exit. Unknown ``:command`` prints a clear error and does NOT advance the turn.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Refactor / inspect run_interactive (or a new dispatch helper); verify it consults a KeyBindings registry rather than a hard-coded ``moves`` dict.",
+        "Add a small testable helper ``dispatch_command(game, kb, line) -> str`` (or equivalent) that maps a single input line to a command-name and applies it; invoke it directly to verify each command (move_west, descend, ascend, wait, help, quit) acts as expected against a Game.",
+        "Verify ``:bindings`` returns/prints the help overlay text.",
+        "Verify ``:descend`` advances to the next floor (when adjacent / standing on stairs / equivalent to the existing game.descend semantics).",
+        "Verify an unknown ``:foo`` returns a clear 'unknown command' string and does NOT mutate game state.",
+        "Verify the help overlay text printed by '?' and ':help' is identical to format_help_overlay(kb)."
+      ],
+      "threshold": "Interactive loop uses KeyBindings; `:`-prompt commands dispatched; unknown commands ignored cleanly; end-of-run summary printed."
+    },
+    {
+      "id": "C14",
+      "category": "determinism",
+      "description": "Cross-process determinism is preserved. (a) Two subprocess runs of ``python -m whisperdeep --seed N --headless --no-whisperer`` produce byte-identical stdout. (b) Two runs of ``--seed N --headless`` (whisperer on) produce byte-identical stdout. (c) Two runs with identical chronicle/leaderboard/badge/summary flags + fixed timestamps produce byte-identical chronicle.md, leaderboard.json content, badge.txt, and summary stdout block. (d) Two runs of ``--seed-string S`` with identical S produce byte-identical stdout. (e) Two runs of ``--daily --daily-date D`` with identical D produce byte-identical stdout.",
+      "testMethod": "integration",
+      "testSteps": [
+        "Run ``python -m whisperdeep --seed 1 --headless --no-whisperer`` twice; assert byte-identical stdout.",
+        "Run ``python -m whisperdeep --seed 11 --headless`` twice; assert byte-identical stdout.",
+        "Run with chronicle + leaderboard + fixed timestamps twice; assert byte-identical chronicle.md, badge.txt, and leaderboard.json content (after entry sort).",
+        "Run ``--seed-string whispergrove --headless --no-whisperer`` twice; assert byte-identical stdout.",
+        "Run ``--daily --daily-date 2026-06-12 --headless --no-whisperer`` twice; assert byte-identical stdout.",
+        "Run with --seed 1 vs --seed 2 (other flags equal); assert stdout differs in at least one byte."
+      ],
+      "threshold": "All five deterministic-input modes byte-identical across processes; different inputs differ."
+    },
+    {
+      "id": "C15",
+      "category": "behavior",
+      "description": "Robustness / edge cases. (a) ``--audio log --dump-audio`` against a Game with whisperer=False writes []` (or similar documented empty payload). (b) ``--leaderboard PATH`` to a non-writable / read-only path exits with a clear error (or fails gracefully — documented behavior). (c) Loading a keybindings file with duplicate keys (same key bound twice) is handled per documented behavior (last-wins OR explicit error). (d) ``--seed-string`` with an empty string is rejected with a clear error. (e) ``build_badge`` works on a Game whose ``floor.archetype`` is None (defensively-constructed) — falls back to a documented placeholder archetype string like 'unknown'.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Run ``python -m whisperdeep --seed 1 --headless --no-whisperer --audio log --dump-audio TMP/a.json``; assert TMP/a.json exists and is JSON [] OR a documented empty payload.",
+        "Programmatically construct a Game where floor.archetype = None; call build_badge; assert it returns a string matching the badge regex with archetype=='unknown' (or the documented placeholder).",
+        "Call load_keybindings with a JSON containing duplicate keys (e.g. {'h': 'move_east', 'h': 'move_west'} — note JSON spec keeps last); assert behavior matches the documented choice (last-wins).",
+        "Run ``python -m whisperdeep --seed-string '' --headless``; assert exit code != 0 with a clear error in stderr.",
+        "Run ``python -m whisperdeep --leaderboard /this/path/does/not/exist/and/is/not/creatable.json --seed 1 --headless``; assert either exit 0 with a documented warning OR exit non-zero with a clear error (per docs).",
+        "Verify build_badge on a Game with no whisperer (whisperer=False) still works (uses Game.turns and floor.archetype regardless)."
+      ],
+      "threshold": "All five edge cases handled per documented behavior; no uncaught exceptions; graceful degradation."
+    },
+    {
+      "id": "C16",
+      "category": "regression",
+      "description": "All prior-sprint contracts (1, 2, 7, 8, 10, 11) are fully preserved. Run pytest on the full prior test suite; everything passes. EVENT_TYPES is unchanged from Sprint 11 (no new event types in Sprint 12). TileKind enum is unchanged. The default headless render with ``--no-whisperer`` produces output byte-equivalent to a Sprint-11 run (modulo the seed-driven archetype glyph variants that already shipped in Sprint 11). All Sprint-7/8/10/11 CLI flags continue to work: --whisperer, --no-whisperer, --whisper-budget, --dump-whispers, --no-panel, --panel-width, --name, --chronicle, --chronicle-fixed-timestamp, --no-chronicle, --archetype, --list-archetypes.",
+      "testMethod": "integration",
+      "testSteps": [
+        "Run ``pytest tests/test_sprint01.py tests/test_sprint07.py tests/test_sprint08.py tests/test_sprint10.py tests/test_sprint11.py tests/test_generator.py tests/test_game.py``; assert exit 0 and ALL tests pass.",
+        "Run ``python -c \"from whisperdeep.events import EVENT_TYPES; assert set(EVENT_TYPES) == {'run_started','run_ended','entered_room','killed_monster','low_hp','found_item','descended','first_sight','room_entered','epitaph'}\"`` and confirm exit 0.",
+        "Run ``python -m whisperdeep --seed 1 --headless --no-whisperer`` and verify exit 0 and grid-only output.",
+        "Run ``python -m whisperdeep --seed 1 --headless --no-panel --dump-whispers TMP.json``; assert exit 0 and TMP.json is non-empty.",
+        "Run ``python -m whisperdeep --seed 1 --headless --name Mara --chronicle TMP/c.md --chronicle-fixed-timestamp 2026-06-12T00:00:00Z``; assert exit 0 and TMP/c.md exists with H1 + 'Mara' + 'seed: 1' (or equivalent).",
+        "Run ``python -m whisperdeep --list-archetypes``; assert exit 0 and >= 5 lines.",
+        "Run ``python -m whisperdeep --seed 1 --headless --no-whisperer --archetype crypt``; assert exit 0 and stdout contains the crypt wall variant.",
+        "Verify TileKind enum is unchanged (5 members)."
+      ],
+      "threshold": "All prior-sprint pytest passes; EVENT_TYPES unchanged; all prior CLI flags continue to work."
+    },
+    {
+      "id": "C17",
+      "category": "tests",
+      "description": "A new ``tests/test_sprint12.py`` (or equivalently named) file contains >= 18 distinct ``test_*`` functions covering, at minimum: keybinds module + COMMANDS + KeyBindings (C1), keybinds JSON round-trip (C2), help overlay (C3), --keys / --list-bindings CLI (C4), audio module + adapters + CUES (C5), --audio + --dump-audio CLI (C6), leaderboard module + APIs (C7), leaderboard read/append/cap (C8), --leaderboard / --print-leaderboard / --no-leaderboard CLI (C9), --daily / --daily-date / --seed-string + conflict detection (C10), build_badge + --print-badge + sibling .badge.txt (C11), build_run_summary + --summary / --no-summary (C12), interactive loop dispatcher / `:`-commands (C13), determinism (C14), edge cases (C15). All pass with no API keys, no network, and no real audio device.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Locate test files under tests/ whose names reference 'sprint12', 'keybinds', 'audio', 'leaderboard', 'badge', or 'summary'.",
+        "Count distinct ``test_*`` function definitions; assert the count is >= 18.",
+        "Verify each scenario above is covered by at least one named test (grep on test names + assertion content).",
+        "Run ``pytest tests/`` with no API keys; assert all tests pass.",
+        "Verify no Sprint-12 test imports ``requests``, ``httpx``, ``urllib.request``, ``anthropic``, ``openai``, ``winsound``, ``playsound``, ``pyaudio``, ``pygame``, or ``numpy`` at module top-level.",
+        "Verify total pytest tests >= prior 174 + new sprint-12 tests."
+      ],
+      "threshold": ">= 18 distinct Sprint-12 test functions, all passing, covering each listed scenario; no network / audio device / new heavyweight deps."
+    },
+    {
+      "id": "C18",
+      "category": "documentation",
+      "description": "Documentation describes Sprint 12. Specifically: (a) docs/whisperdeep.md gains a Sprint-12 status banner AND dedicated subsections for KEYBINDS (with the default mapping), AUDIO (opt-in, OFF by default, no real backend yet), LEADERBOARD (file format, sorting, cap), DAILY+SEED-STRING (algorithm + epoch), BADGE (canonical line format), and RUN-SUMMARY (sections + determinism). (b) A README.md is created (or fully refreshed) at the repo root with: install / quickstart / controls / config (including --keys + WHISPERDEEP_KEYS) / daily seed / leaderboard / badge / project-status sections. (c) The cross-run 'death legends' deferral note from Sprint 10 is preserved. (d) Sprints 3/4/5/6/9 NOT in tree are explicitly noted as deferred.",
+      "testMethod": "static",
+      "testSteps": [
+        "Open docs/whisperdeep.md; verify a Sprint-12 banner / status section exists.",
+        "Verify subsections exist for keybinds, audio, leaderboard, daily/seed-string, badge, and run-summary (each with the documented details).",
+        "Open README.md at the repo root; verify it exists and contains install / quickstart / controls / config / daily / leaderboard / badge sections.",
+        "Verify the cross-run death-legends deferral note from Sprint 10 is still present.",
+        "Verify Sprints 3/4/5/6/9 are documented as not-in-tree / deferred somewhere in the docs.",
+        "Verify the default keybinding table is human-readable in the docs (e.g., 'h -> move_west')."
+      ],
+      "threshold": "All six Sprint-12 doc topics + README + deferred-sprints note are present; default keybind table is included."
+    },
+    {
+      "id": "C19",
+      "category": "code-quality",
+      "description": "Layering invariants are preserved across all four new modules. ``keybinds.py``, ``audio.py``, ``leaderboard.py``, and ``summary.py`` import only stdlib + typing + (game/events/chronicle/archetypes types via TYPE_CHECKING where needed). NONE of them import ``whisperdeep.llm``, ``whisperdeep.render``, ``whisperdeep.panel``, or ``whisperdeep.whisperer``. ``audio.py`` imports NO third-party audio library (no winsound, playsound, pyaudio, pygame, numpy). ``events.py`` and ``llm.py`` do NOT import any of the new modules. EVENT_TYPES is unchanged from Sprint 11. TileKind enum is unchanged.",
+      "testMethod": "static",
+      "testSteps": [
+        "AST-inspect whisperdeep/keybinds.py imports: only stdlib + typing; NO llm/render/panel/whisperer.",
+        "AST-inspect whisperdeep/audio.py imports: only stdlib + typing; NO winsound, playsound, pyaudio, pygame, numpy, requests, urllib; NO llm/render/panel/whisperer.",
+        "AST-inspect whisperdeep/leaderboard.py imports: only stdlib + typing + optional .game/.archetypes via TYPE_CHECKING; NO llm/render/panel/whisperer.",
+        "AST-inspect whisperdeep/summary.py imports: only stdlib + typing + optional .game/.archetypes/.leaderboard via TYPE_CHECKING; NO llm/render/panel/whisperer.",
+        "AST-inspect whisperdeep/events.py and whisperdeep/llm.py: confirm they do NOT import keybinds/audio/leaderboard/summary.",
+        "Confirm TileKind enum is unchanged from Sprint 1 (5 members).",
+        "Confirm EVENT_TYPES is unchanged from Sprint 11 (10 types, no new event types in Sprint 12)."
+      ],
+      "threshold": "Four new modules layered correctly; no audio backend libs; events/llm clean; TileKind / EVENT_TYPES unchanged."
+    },
+    {
+      "id": "C20",
+      "category": "integration",
+      "description": "Final end-to-end smoke test that exercises every Sprint-12 surface in a single run. ``python -m whisperdeep --seed 7 --headless --name Mara --chronicle TMP/c.md --chronicle-fixed-timestamp 2026-06-12T00:00:00Z --leaderboard TMP/lb.json --leaderboard-fixed-timestamp 2026-06-12T00:00:00Z --audio log --dump-audio TMP/cues.json --summary --keys TMP/keys.json`` (where TMP/keys.json is a valid keybindings file) succeeds with exit 0 and produces ALL of: TMP/c.md (the chronicle), TMP/c.md.badge.txt (the badge), TMP/lb.json (the leaderboard with one entry), TMP/cues.json (the cue log), and stdout containing the run-summary block. Re-running produces a TMP/lb.json with two entries (sorted by score DESC).",
+      "testMethod": "integration",
+      "testSteps": [
+        "Prepare TMP/keys.json with a valid bindings JSON (e.g., DEFAULTS).",
+        "Run the full command above; assert exit code 0.",
+        "Assert TMP/c.md exists, starts with '#', and contains 'Mara' and 'seed: 7' (or equivalent).",
+        "Assert TMP/c.md.badge.txt exists and contains exactly one line matching the badge regex with seed=7.",
+        "Assert TMP/lb.json exists and contains exactly one entry with seed=7 and name='Mara'.",
+        "Assert TMP/cues.json exists and is a JSON list (length >= 1 since --audio log).",
+        "Assert stdout contains the documented run-summary header.",
+        "Re-run with --seed 8 (other flags identical); assert TMP/lb.json now contains 2 entries; assert the entries are sorted by score DESC."
+      ],
+      "threshold": "Full end-to-end run produces all five artifacts (chronicle, badge, leaderboard, cues, summary stdout) with exit 0; second run accumulates."
+    }
+  ],
+  "outOfScope": [
+    "Real audio backend (winsound / playsound / pyaudio / pygame). Sprint 12 ships AudioAdapter Protocol + Null + Log only. A future sprint can add a terminal-bell or playsound backend without changing the public interface.",
+    "Network sync of leaderboards (cloud sync / leaderboard server). Leaderboard is local-file only.",
+    "Save/load of in-progress runs / single save slot / save-scumming protection (Sprint 6).",
+    "FOV / fog-of-war / line-of-sight (Sprint 3).",
+    "Combat / HP / damage / status effects (Sprint 3).",
+    "Items / inventory / identification (Sprint 4).",
+    "Monster spawning + AI behaviors (Sprint 5).",
+    "Director-mode procgen nudges + cross-run meta-memory (Sprint 9).",
+    "Cross-run 'death legends' that the Whisperer references in future runs (still deferred from Sprint 10).",
+    "Curses / TUI / per-cell colored panel (the Sprint-11 colorize_frame helper is the colour story; nothing in Sprint 12 forces ANSI into the default render).",
+    "Real network calls in CI / automated tests — provider adapters remain stubbed and gated.",
+    "GUI keybinder / interactive rebinding wizard. Rebinding via the `:`-prompt command (``:bind move_west a``) is in scope; a fancy TUI rebinder is not.",
+    "Multi-user leaderboard / accounts. Leaderboard entries are name-stamped only; there is no auth.",
+    "Mouse / gamepad input. Keybinds are keyboard-only."
+  ],
+  "regressionSprints": [1, 2, 7, 8, 10, 11],
+  "deliverables": [
+    "A new ``whisperdeep/keybinds.py`` module: COMMANDS constant, KeyBindings class with bind/unbind/command_for/keys_for, DEFAULTS factory, load_keybindings/save_keybindings, format_help_overlay.",
+    "A new ``whisperdeep/audio.py`` module: AudioAdapter Protocol, NullAudioAdapter, LogAudioAdapter, CUES constant, EVENT_TO_CUE mapping. NO real audio backend.",
+    "A new ``whisperdeep/leaderboard.py`` module: score_for, read_leaderboard, append_entry, build_entry, stable_seed_from_string. SHA-256-based stable string hashing.",
+    "A new ``whisperdeep/summary.py`` module exposing build_run_summary(game, *, name, fixed_timestamp) and build_badge(game, *, name).",
+    "Game gains an opt-in audio: AudioAdapter | None attribute (default None) wired through event publication so cues fire on canonical event types.",
+    "CLI flags: --keys PATH, --list-bindings, --print-help-overlay, --audio CHOICE, --dump-audio PATH, --leaderboard PATH, --no-leaderboard, --print-leaderboard, --leaderboard-fixed-timestamp ISO, --daily, --daily-date YYYY-MM-DD, --seed-string TEXT, --print-badge, --no-badge, --summary, --no-summary. All listed in --help.",
+    "Interactive run loop refactored to consult the KeyBindings registry; `:`-prefixed commands dispatched (e.g. :quit, :help, :descend, :ascend, :bindings, :summary, :bind, :unbind).",
+    "End-of-run summary printed to stdout at end of interactive AND headless runs (when --summary or --chronicle is set, per docs).",
+    ">= 18 NEW pytest tests under tests/test_sprint12.py covering all C1-C15 scenarios, no network, no audio device, no new heavyweight deps.",
+    "docs/whisperdeep.md updated with a Sprint-12 status banner + subsections for keybinds, audio, leaderboard, daily/seed-string, badge, run-summary.",
+    "README.md created (or fully refreshed) at the repo root with install / quickstart / controls / config / daily / leaderboard / badge / project-status sections.",
+    "Commits following ``harness(sprint-12): description [C-ID]`` convention."
+  ]
+}
