@@ -1,9 +1,5 @@
 {
-  "status": "pass",
+  "status": "ready-for-eval",
   "attempt": 1,
-  "timestamp": "2026-06-12T00:00:00Z",
-  "evaluator": "independent QA evaluator (fresh context)",
-  "passCount": 22,
-  "failCount": 0,
-  "note": "Independent re-verification of sprint 2 confirms PASS on all 22 criteria. Supersedes prior self-evaluation note. See eval-report.json for evidence."
+  "timestamp": "2026-06-12T00:00:00Z"
 }
