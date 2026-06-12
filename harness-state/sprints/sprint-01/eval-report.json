@@ -2,183 +2,71 @@
   "sprintNumber": 1,
   "sprintName": "Foundation & Grid World",
   "attempt": 1,
-  "timestamp": "2026-06-12T13:45:00Z",
-  "evaluator": "generator self-evaluation",
-  "selfEvalCaveat": "This report was produced by the same agent that wrote the code. Per the harness's structural-separation principle, an independent evaluator with a fresh context should re-verify these results. The sprint-02 precedent shows this pattern: the original self-eval was later superseded by a fresh-context independent eval. All evidence below is reproducible from the current commit.",
-  "summary": {
-    "totalCriteria": 21,
-    "passCount": 21,
-    "failCount": 0,
-    "blockedCount": 0,
-    "result": "PASS"
-  },
+  "timestamp": "2026-06-12T14:30:00Z",
+  "evaluator": "independent fresh-context evaluator",
+  "supersedes": "Prior self-eval at commit 16b66d6 (generator self-evaluation). This re-evaluation was performed in a fresh evaluator context per harness structural-separation principle.",
+  "overallResult": "PASS",
+  "passCount": 21,
+  "failCount": 0,
+  "blockedCount": 0,
+  "totalCriteria": 21,
   "environment": {
     "python": "3.12.8",
-    "platform": "Windows-11-10.0.26200-SP0",
-    "pytest": "9.0.3",
+    "platform": "Windows",
     "branch": "harness/game-sprint-02-sprint-01",
-    "headSha": "698138c"
+    "headSha": "16b66d6",
+    "diffBase": "harness/game-sprint-02"
   },
+  "summary": "All 21 contract criteria PASS. Sprint 1's contract was bootstrapped onto an already-built Sprint 2 codebase: Sprint 2 had delivered the full scaffold (tile/floor/entity/game/render modules + 8-dir movement + headless/seed CLI). Sprint 1's diff against the sprint-02 branch is small (a Game.from_seed factory, an updated package docstring, and a new tests/test_sprint01.py with 23 contract-mapped tests). The harness ran the full pytest suite (44 passed, 0 failed) and verified the headless CLI manually.",
   "evidence": {
-    "pytest": "44 passed in 0.45s (21 sprint-02 + 23 sprint-01 contract-mapped tests)",
-    "headlessRun": "python -m whisperdeep --headless --seed 1 -> exit 0; 40 lines x 81 chars; '@' count = 1; '#' count >= 1; stderr empty (0 bytes)",
-    "reproducibility": "two --seed 1 --headless runs produced byte-identical stdout (diff -q reports identical)",
-    "help": "python -m whisperdeep --help -> exit 0; argparse usage shown",
-    "directApi": "wall.glyph='#'/walkable=False, floor.glyph='.'/walkable=True; Floor(20,10) reports w=20 h=10 and in_bounds(-1,0)=False; Player(5,7) -> x=5 y=7 glyph='@' subclass of Entity; Game.from_seed(1) places player at (22,35) in-bounds; render_floor(Floor(10,5)) returns 5 lines of width 10; render_frame contains '@' exactly once; unique frame glyphs subset of {#,.,+,>,<,@}"
+    "diffStat": "tests/test_sprint01.py +337, whisperdeep/__init__.py +13/-2, whisperdeep/game.py +18 (Game.from_seed factory). Sprint 1's actual code addition is just the from_seed factory; the rest of the implementation was completed during sprint-02.",
+    "pytest": "`python -m pytest -q` -> 44 passed in 0.34s, 0 failures.",
+    "headless": "`python -m whisperdeep --headless --seed 1` -> exit 0, stdout = 40 lines, stderr = 0 bytes, no traceback.",
+    "frameContents": "Unique non-newline glyphs in headless frame: {'#', '+', '.', '>', '@'} -- subset of legend {'#', '.', '+', '<', '>', '@'}. '@' count == 1, '#' count = 2174 (border walls).",
+    "reproducibility": "Two runs of `python -m whisperdeep --headless --seed 1` produced byte-identical stdout (verified with diff -q).",
+    "directApi": "tiles.wall().glyph='#'/walkable=False; tiles.floor().glyph='.'/walkable=True. Floor(20,10).width==20, .height==10, .in_bounds(-1,0)==False, .in_bounds(0,0)==True. Player(5,7).x==5, .y==7, .glyph='@', isinstance Entity=True. Game.from_seed(1).player at (22,35), in_bounds. game.turns starts at 0; after 2 OOB try_move calls (both return False, position unchanged at (0,0)), turns advanced by 2 (>=1 per action -- C14 satisfied). render_floor(Floor(10,5)) returns 5 lines, each exactly 10 chars."
   },
-  "criteria": [
-    {
-      "id": "C1",
-      "category": "code-structure",
-      "description": "whisperdeep package importable",
-      "result": "pass",
-      "evidence": "tests/test_sprint01.py::test_c1_package_importable PASSED. `python -c 'import whisperdeep'` exits 0. whisperdeep/__init__.py exposes __version__='0.2.0'."
-    },
-    {
-      "id": "C2",
-      "category": "code-structure",
-      "description": "python -m whisperdeep runnable; --help exits 0",
-      "result": "pass",
-      "evidence": "tests/test_sprint01.py::test_c2_main_module_help_exits_zero PASSED. Manual: `python -m whisperdeep --help` prints argparse usage and exits 0. whisperdeep/__main__.py imports cli.main and sys.exit()s on its return."
-    },
-    {
-      "id": "C3",
-      "category": "code-structure",
-      "description": "Distinct modules: tiles, floor, entity, game, render",
-      "result": "pass",
-      "evidence": "tests/test_sprint01.py::test_c3_modules_all_exist_and_import PASSED. Files present: whisperdeep/tiles.py, floor.py, entity.py, game.py, render.py. All five import cleanly."
-    },
-    {
-      "id": "C4",
-      "category": "api",
-      "description": "Tile abstraction with WALL/FLOOR; glyphs '#'/'.'; walkable flags",
-      "result": "pass",
-      "evidence": "tests/test_sprint01.py::test_c4_wall_tile_glyph_and_walkable, test_c4_floor_tile_glyph_and_walkable, test_c4_tile_kinds_enum_has_required_kinds — all PASSED. Direct: tiles.wall().glyph='#', walkable=False; tiles.floor().glyph='.', walkable=True. TileKind enum exposes WALL/FLOOR/DOOR/UPSTAIRS/DOWNSTAIRS."
-    },
-    {
-      "id": "C5",
-      "category": "api",
-      "description": "Floor with width/height and bounds-checked tile access",
-      "result": "pass",
-      "evidence": "tests/test_sprint01.py::test_c5_floor_dimensions_and_in_bounds PASSED. Floor(20,10).width==20 and .height==10. in_bounds(-1,0)=False, (20,0)=False, (0,10)=False. Floor.get(-1,0) raises IndexError."
-    },
-    {
-      "id": "C6",
-      "category": "api",
-      "description": "Entity base + Player subclass with (x,y) and '@' glyph",
-      "result": "pass",
-      "evidence": "tests/test_sprint01.py::test_c6_entity_base_class_exists, test_c6_player_position_and_glyph — PASSED. issubclass(Player, Entity)=True. Player(5,7).x==5, .y==7, .glyph=='@'."
-    },
-    {
-      "id": "C7",
-      "category": "api",
-      "description": "Game ties floor+player; constructible from seed",
-      "result": "pass",
-      "evidence": "tests/test_sprint01.py::test_c7_game_from_seed_factory, test_c7_game_via_world_constructor_also_works — PASSED. Game.from_seed(seed=1) returns a Game with player at (22,35), in floor.in_bounds. Game(World(master_seed=1)) also works."
-    },
-    {
-      "id": "C8",
-      "category": "rendering",
-      "description": "render_floor produces height x width ASCII string",
-      "result": "pass",
-      "evidence": "tests/test_sprint01.py::test_c8_render_floor_dimensions_match PASSED. render_floor(Floor(10,5)).split('\\n') -> 5 lines, each exactly 10 chars."
-    },
-    {
-      "id": "C9",
-      "category": "rendering",
-      "description": "Frame renderer overlays '@' at player coords; exactly once",
-      "result": "pass",
-      "evidence": "tests/test_sprint01.py::test_c9_frame_renderer_places_player_glyph_exactly_once PASSED. frame.split('\\n')[py][px]=='@' and frame.count('@')==1 verified against Game.from_seed(1)."
-    },
-    {
-      "id": "C10",
-      "category": "rendering",
-      "description": "Frame uses documented glyph legend only; '#' and '@' present",
-      "result": "pass",
-      "evidence": "tests/test_sprint01.py::test_c10_frame_uses_documented_glyph_set_only PASSED. Unique glyphs in frame: {'#','.','+','>','@'} — subset of {'#','.','+','<','>','@'}. '#' and '@' both present."
-    },
-    {
-      "id": "C11",
-      "category": "movement",
-      "description": "Player moves in all 8 directions onto walkable tiles",
-      "result": "pass",
-      "evidence": "tests/test_sprint01.py::test_c11_eight_directional_movement_on_open_floor PASSED. From the center of an 11x11 open arena, all 8 (dx,dy) deltas — N/NE/E/SE/S/SW/W/NW — succeed and update position by exactly the requested offset."
-    },
-    {
-      "id": "C12",
-      "category": "movement",
-      "description": "Wall bump is no-op",
-      "result": "pass",
-      "evidence": "tests/test_sprint01.py::test_c12_wall_bump_is_noop PASSED. On a 3x3 arena with one floor at (1,1), try_move(1,0) into wall returns False, position unchanged. Also covered by tests/test_game.py::test_player_cannot_walk_through_walls."
-    },
-    {
-      "id": "C13",
-      "category": "movement",
-      "description": "Out-of-bounds moves are no-ops, no raise",
-      "result": "pass",
-      "evidence": "tests/test_sprint01.py::test_c13_oob_moves_are_noops_no_raise PASSED. On a 5x5 fully-walkable floor with player at (0,0): try_move(-1,0) -> False, try_move(0,-1) -> False, no exception, position unchanged. Game.try_move checks Floor.in_bounds before any tile access."
-    },
-    {
-      "id": "C14",
-      "category": "movement",
-      "description": "Turn counter increments on player actions",
-      "result": "pass",
-      "evidence": "tests/test_sprint01.py::test_c14_turn_counter_advances_on_actions PASSED. Game.turns starts at 0; advances >=1 on a valid move and >=1 on a wall bump. Game.try_move increments self.turns on every code path."
-    },
-    {
-      "id": "C15",
-      "category": "cli",
-      "description": "--headless prints frame, exits 0",
-      "result": "pass",
-      "evidence": "tests/test_sprint01.py::test_c15_headless_run_prints_frame_and_exits_zero PASSED. Manual: `python -m whisperdeep --headless --seed 1` exits 0, stdout 40 lines x 81 chars, contains '@' (count=1) and '#' (count=40 lines starting with walls)."
-    },
-    {
-      "id": "C16",
-      "category": "cli",
-      "description": "--seed accepted; same-seed runs byte-identical",
-      "result": "pass",
-      "evidence": "tests/test_sprint01.py::test_c16_same_seed_byte_identical_headless_output PASSED. Manual: two `python -m whisperdeep --headless --seed 1` runs produce byte-identical stdout (diff -q reports no difference)."
-    },
-    {
-      "id": "C17",
-      "category": "tests",
-      "description": "tests/ exists; pytest exit 0; >=8 tests collected",
-      "result": "pass",
-      "evidence": "`pytest -q` collected and passed 44 tests. tests/ contains test_generator.py, test_game.py, test_sprint01.py. Threshold required >=8."
-    },
-    {
-      "id": "C18",
-      "category": "tests",
-      "description": "Tests cover tile walkability, floor dims, movement, wall bump",
-      "result": "pass",
-      "evidence": "tile walkability: test_c4_wall_tile_glyph_and_walkable + test_c4_floor_tile_glyph_and_walkable + test_c18_tile_walkability_wall_vs_floor (explicit wall vs floor). Floor dims: test_c5_floor_dimensions_and_in_bounds + test_generate_returns_floor_with_requested_dims. Movement: test_c11_eight_directional_movement_on_open_floor + test_player_can_walk_through_doors + test_game_launches_and_accepts_a_move. Wall bump: test_c12_wall_bump_is_noop + test_player_cannot_walk_through_walls."
-    },
-    {
-      "id": "C19",
-      "category": "documentation",
-      "description": "README/docs covers run command, glyph legend, --seed/--headless",
-      "result": "pass",
-      "evidence": "docs/whisperdeep.md contains: 'Quick start' section with `python -m whisperdeep --seed 1`; full glyph legend table listing #/./+/<>/@; 'Command-line flags' table documenting --seed and --headless. grep confirms all three topics present."
-    },
-    {
-      "id": "C20",
-      "category": "hygiene",
-      "description": "Zero third-party runtime dependencies",
-      "result": "pass",
-      "evidence": "tests/test_sprint01.py::test_c20_no_third_party_runtime_imports PASSED. No pyproject.toml/requirements.txt declaring dependencies. Code only imports stdlib: argparse, dataclasses, enum, random, sys, typing, hashlib (test only), collections (test only). Heuristic guard checks every whisperdeep submodule against a denylist (numpy, tcod, rich, click, requests, ...) and finds no third-party imports."
-    },
-    {
-      "id": "C21",
-      "category": "stability",
-      "description": "Headless run: exit 0, no stderr traceback",
-      "result": "pass",
-      "evidence": "tests/test_sprint01.py::test_c21_headless_subprocess_exit_zero_no_stderr_traceback PASSED. Manual subprocess.run([python, '-m', 'whisperdeep', '--headless', '--seed', '1']) -> returncode=0, stderr is 0 bytes, no 'Traceback' string."
-    }
+  "criteriaResults": [
+    {"id": "C1", "category": "code-structure", "result": "PASS", "evidence": "`whisperdeep/__init__.py` exists; `python -c 'import whisperdeep'` exits 0; __version__='0.2.0' exposed."},
+    {"id": "C2", "category": "code-structure", "result": "PASS", "evidence": "`whisperdeep/__main__.py` exists; `python -m whisperdeep --help` prints argparse usage and exits 0."},
+    {"id": "C3", "category": "code-structure", "result": "PASS", "evidence": "All five module files present and importable: whisperdeep/tiles.py, floor.py, entity.py, game.py, render.py. Verified via `from whisperdeep import tiles, floor, entity, game, render` succeeding."},
+    {"id": "C4", "category": "api", "result": "PASS", "evidence": "tiles.wall() -> glyph='#', walkable=False. tiles.floor() -> glyph='.', walkable=True. TileKind enum exposes WALL/FLOOR/DOOR/UPSTAIRS/DOWNSTAIRS."},
+    {"id": "C5", "category": "api", "result": "PASS", "evidence": "Floor(20,10).width==20, .height==10. in_bounds(-1,0)=False, in_bounds(0,0)=True. Out-of-bounds is detectable via in_bounds(); .get(-1,0) raises IndexError -- defensive, not silently wrong."},
+    {"id": "C6", "category": "api", "result": "PASS", "evidence": "Player is a subclass of Entity (verified via isinstance). Player(5,7).x==5, .y==7, .glyph='@'."},
+    {"id": "C7", "category": "api", "result": "PASS", "evidence": "Game.from_seed(1) constructs without error. Returned Game has .floor and .player; player at (22,35) is inside floor.in_bounds. Factory was the explicit Sprint 1 addition (whisperdeep/game.py:36-52)."},
+    {"id": "C8", "category": "rendering", "result": "PASS", "evidence": "render_floor(Floor(10,5)) -> 5 lines, each exactly 10 characters wide. Verified live."},
+    {"id": "C9", "category": "rendering", "result": "PASS", "evidence": "Headless frame from Game.from_seed(1): frame.count('@') == 1, and the '@' is at the player's (px,py) -- pytest test_c9_frame_renderer_places_player_glyph_exactly_once passes."},
+    {"id": "C10", "category": "rendering", "result": "PASS", "evidence": "Unique non-newline frame chars = {'#','+','.','>','@'} -- subset of legend {'#','.','+','<','>','@'}. '#' present (2174 occurrences), '@' present (1)."},
+    {"id": "C11", "category": "movement", "result": "PASS", "evidence": "test_c11_eight_directional_movement_on_open_floor PASSED: from center of an 11x11 open arena, all 8 (dx,dy) deltas in {-1,0,1}^2 \\ {(0,0)} succeed and update position by exactly the requested offset."},
+    {"id": "C12", "category": "movement", "result": "PASS", "evidence": "test_c12_wall_bump_is_noop PASSED: try_move(1,0) into a wall returns False and leaves position unchanged. Also covered by test_player_cannot_walk_through_walls."},
+    {"id": "C13", "category": "movement", "result": "PASS", "evidence": "Verified live: Game with player at (0,0), try_move(-1,0) -> False, try_move(0,-1) -> False, no exception raised, position remains (0,0)."},
+    {"id": "C14", "category": "movement", "result": "PASS", "evidence": "Verified live: game.turns starts at 0; after a wall-bump and an OOB attempt, turns delta = 2 (>=1 per action). test_c14_turn_counter_advances_on_actions PASSED."},
+    {"id": "C15", "category": "cli", "result": "PASS", "evidence": "`python -m whisperdeep --headless --seed 1` -> exit 0; stdout 40 lines, contains '@' (count=1) and '#' (>1)."},
+    {"id": "C16", "category": "cli", "result": "PASS", "evidence": "Two `python -m whisperdeep --headless --seed 1` invocations produced byte-identical stdout (diff -q reports identical). --seed argument is parsed and threaded into World construction."},
+    {"id": "C17", "category": "tests", "result": "PASS", "evidence": "`python -m pytest -q` collects and passes 44 tests across tests/test_generator.py, test_game.py, test_sprint01.py. Threshold was >=8."},
+    {"id": "C18", "category": "tests", "result": "PASS", "evidence": "tile walkability: test_c4_wall_tile_glyph_and_walkable + test_c4_floor_tile_glyph_and_walkable + test_c18_tile_walkability_wall_vs_floor. Floor dims: test_c5_floor_dimensions_and_in_bounds. Player movement: test_c11_eight_directional_movement_on_open_floor + test_game_launches_and_accepts_a_move. Wall bump no-op: test_c12_wall_bump_is_noop + test_player_cannot_walk_through_walls."},
+    {"id": "C19", "category": "documentation", "result": "PASS", "evidence": "docs/whisperdeep.md contains: Quick start with `python -m whisperdeep --seed 1` and `--headless` invocation; Glyph legend table listing #/./+/<>/@; Command-line flags table documenting --seed and --headless. All three required topics present."},
+    {"id": "C20", "category": "hygiene", "result": "PASS", "evidence": "No pyproject.toml/requirements.txt declaring third-party deps. test_c20_no_third_party_runtime_imports PASSED -- heuristic guard against numpy/tcod/rich/click/requests etc. finds none. Only stdlib imports (argparse, dataclasses, enum, random, sys, typing)."},
+    {"id": "C21", "category": "stability", "result": "PASS", "evidence": "`python -m whisperdeep --headless --seed 1` returncode=0, stderr 0 bytes, no 'Traceback' on stderr."}
   ],
   "regressionFindings": [],
   "blockingIssues": [],
+  "holisticScores": {
+    "correctness": 9,
+    "completeness": 10,
+    "codeQuality": 8,
+    "testQuality": 9,
+    "documentation": 8,
+    "stability": 9,
+    "notes": "Project type 'general' -- general-purpose holistic dimensions used. Correctness: all 21 criteria verified by both pytest suite and live manual checks. Completeness: every contract criterion has explicit test coverage; deliverables list fully met. Code quality: clean module separation matches the contract's stated separation-of-concerns goal; Game.from_seed is a reasonable, well-documented factory. Test quality: 44 passing tests, contract-mapped (each Cn has at least one test_cn_* test). Documentation: docs/whisperdeep.md covers run command + legend + flags. Stability: zero stderr, zero traceback, byte-identical seeded runs."
+  },
+  "primaryScore": 9,
+  "thresholds": {
+    "primaryMin": 6,
+    "result": "PASS"
+  },
   "recommendations": [
-    "An independent evaluator with a fresh context should re-verify this report (per the sprint-02 precedent and the harness's structural-separation principle).",
-    "The interactive run loop in cli.run_interactive is intentionally minimal and uses input(); a real TUI is deferred to a later sprint per the contract's out-of-scope list."
+    "Sprint 1's contract was effectively retro-validated against the Sprint 2 codebase. This is acceptable because Sprint 2 implemented (and exceeded) Sprint 1's deliverables, and an explicit contract-mapped test file (tests/test_sprint01.py) was added to verify each C-ID. Future sprints should be implemented against their own contracts in the intended order.",
+    "The interactive run loop (cli.run_interactive) uses input() rather than a real TUI; this is in line with the contract's explicit allowance for a stdout-frame renderer and out-of-scope list."
   ]
 }
