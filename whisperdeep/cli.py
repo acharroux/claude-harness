@@ -97,6 +97,16 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     p.add_argument(
+        "--whisperer-model",
+        default="claude-haiku-4-5",
+        metavar="MODEL",
+        help=(
+            "Model name for the anthropic/openai whisperer adapter "
+            "(default: claude-haiku-4-5). Examples: claude-haiku-4-5, "
+            "claude-sonnet-4-6."
+        ),
+    )
+    p.add_argument(
         "--no-whisperer",
         dest="no_whisperer",
         action="store_true",
@@ -204,6 +214,7 @@ def make_game(args: argparse.Namespace) -> Game:
         whisperer=True,
         adapter=args.whisperer,
         budget=args.whisper_budget,
+        model=args.whisperer_model,
     )
 
 
