@@ -1,0 +1,32 @@
+{
+  "fixId": "fix-001",
+  "verdict": "PASS",
+  "criteria": [
+    {
+      "id": "FX1",
+      "status": "PASS",
+      "notes": "make_adapter() in whisperdeep/adapter_factory.py:27-59 accepts model kwarg. Verified: make_adapter('anthropic', model='claude-haiku-4-5') -> adapter.model == 'claude-haiku-4-5'. make_adapter('anthropic') with no model -> adapter.model == 'claude-3-5-haiku-latest' (AnthropicAdapter's built-in default at llm.py:247). make_adapter('openai', model='gpt-5') -> adapter.model == 'gpt-5'. Offline/null adapters ignore model (no error). Implementation correctly forwards model only when provided, preserving each adapter's default."
+    },
+    {
+      "id": "FX2",
+      "status": "PASS",
+      "notes": "Game.from_seed signature (whisperdeep/game.py:78-89) includes model: Optional[str] = None and forwards it to make_adapter at game.py:105 (llm = make_adapter(adapter, seed=seed, model=model)). Verified construction with adapter='offline' both with and without model kwarg succeeds without error."
+    },
+    {
+      "id": "FX3",
+      "status": "PASS",
+      "notes": "--whisperer-model is registered in whisperdeep/cli.py:99-108 with default='claude-haiku-4-5'. python -m whisperdeep --help output contains both 'whisperer-model' and 'claude-haiku-4-5' (default shown in help text)."
+    },
+    {
+      "id": "FX4",
+      "status": "PASS",
+      "notes": "python -m whisperdeep --seed 1 --headless --whisperer offline --whisperer-model claude-haiku-4-5 -> exit code 0. Frame rendered with whisper panel as expected. CLI correctly threads args.whisperer_model into Game.from_seed via make_game (cli.py:179)."
+    },
+    {
+      "id": "FX5",
+      "status": "PASS",
+      "notes": "Backward compatibility verified: 'python -m whisperdeep --seed 1 --headless' exits 0; 'python -m whisperdeep --seed 1 --headless --no-whisperer' exits 0; full pytest suite passes 99/99 in 2.96s. No regressions in sprint-7/sprint-8 tests."
+    }
+  ],
+  "summary": "All 5 criteria PASS. The diff is minimal and surgical: model kwarg added to make_adapter (forwarded only when not None, preserving adapter defaults), Game.from_seed (forwarded to make_adapter), and --whisperer-model CLI flag with default 'claude-haiku-4-5'. AnthropicAdapter and OpenAIAdapter constructors already accepted model (sprint 7), so no internal adapter changes were needed (consistent with outOfScope). Unit, integration, and regression tests all green (99/99 pytest)."
+}
