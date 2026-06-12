@@ -24,7 +24,12 @@ from .llm import (
 SUPPORTED = ("offline", "null", "anthropic", "openai")
 
 
-def make_adapter(name: str, *, seed: Optional[int] = None) -> LLMAdapter:
+def make_adapter(
+    name: str,
+    *,
+    seed: Optional[int] = None,
+    model: Optional[str] = None,
+) -> LLMAdapter:
     """Construct an adapter by short name.
 
     Parameters
@@ -33,6 +38,12 @@ def make_adapter(name: str, *, seed: Optional[int] = None) -> LLMAdapter:
         One of ``offline`` / ``null`` / ``anthropic`` / ``openai``.
     seed
         Forwarded to the offline adapter for deterministic prose.
+    model
+        Optional model name. When provided and ``name`` is ``anthropic``
+        or ``openai``, it is forwarded to the adapter's constructor.
+        Ignored for ``offline`` and ``null`` adapters (those backends do
+        not consume a model name). When omitted, each adapter falls back
+        to its own built-in default.
     """
     key = (name or "").strip().lower()
     if key == "offline":
@@ -40,9 +51,9 @@ def make_adapter(name: str, *, seed: Optional[int] = None) -> LLMAdapter:
     if key == "null":
         return NullAdapter()
     if key == "anthropic":
-        return AnthropicAdapter()
+        return AnthropicAdapter(model=model) if model is not None else AnthropicAdapter()
     if key == "openai":
-        return OpenAIAdapter()
+        return OpenAIAdapter(model=model) if model is not None else OpenAIAdapter()
     raise ValueError(
         f"Unknown adapter {name!r}; choose one of {SUPPORTED}"
     )

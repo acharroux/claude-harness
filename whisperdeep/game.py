@@ -84,6 +84,7 @@ class Game:
         whisperer: bool = True,
         adapter: str = "offline",
         budget: Optional[int] = None,
+        model: Optional[str] = None,
     ) -> "Game":
         """Construct a Game directly from a master seed.
 
@@ -101,7 +102,7 @@ class Game:
         from .whisperer import DEFAULT_BUDGET, Whisperer
 
         bus = EventBus()
-        llm = make_adapter(adapter, seed=seed)
+        llm = make_adapter(adapter, seed=seed, model=model)
         wh = Whisperer(
             adapter=llm,
             bus=bus,
