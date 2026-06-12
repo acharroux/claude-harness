@@ -531,7 +531,12 @@ def test_c14_no_whisperer_byte_deterministic():
 
 
 def test_c14_glyphs_present_for_seed_1():
-    res = _run_cli("--seed", "1", "--headless", "--no-whisperer")
+    # Sprint 11: pin the archetype to 'crypt' so the Sprint-1/2 default
+    # glyphs are observable. (Without --archetype, seed=1 floor 0 picks
+    # 'flooded_sewer' whose '=' / ',' overrides change the glyph set.)
+    res = _run_cli(
+        "--seed", "1", "--headless", "--no-whisperer", "--archetype", "crypt"
+    )
     assert res.returncode == 0
     for glyph in ("#", ".", "@", ">"):
         assert glyph in res.stdout

@@ -73,7 +73,12 @@ def test_floor_persists_across_descent_and_ascent():
 # ---------- C15: glyph set --------------------------------------------------
 
 def test_render_uses_documented_glyph_set():
-    world = World(master_seed=1, num_floors=3)
+    # Sprint 11: this test verifies the Sprint 1/2 default glyph set still
+    # works when the floor's archetype preserves the defaults. We pin the
+    # archetype to 'crypt' which keeps '#'/'.'/'+' as-is. Stair glyphs
+    # ('<', '>') and the player glyph ('@') are reserved across all
+    # archetypes.
+    world = World(master_seed=1, num_floors=3, forced_archetype="crypt")
     game = Game(world)
     frame = render_frame(game)
     # All wall/floor/player glyphs should be present on floor 0.
@@ -99,7 +104,9 @@ def test_render_uses_documented_glyph_set():
 # ---------- C16: initial frame shows generated dungeon ----------------------
 
 def test_initial_frame_shows_dungeon_and_player():
-    world = World(master_seed=1, num_floors=3)
+    # Sprint 11: pin the archetype to one that preserves the Sprint 1/2
+    # default glyphs ('#', '.', '+') so this Sprint-1 test stays valid.
+    world = World(master_seed=1, num_floors=3, forced_archetype="crypt")
     game = Game(world)
     frame = render_frame(game)
     # Walls, floors, player all present.

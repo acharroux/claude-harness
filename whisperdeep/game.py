@@ -93,6 +93,7 @@ class Game:
         adapter: str = "offline",
         budget: Optional[int] = None,
         model: Optional[str] = None,
+        forced_archetype: Optional[str] = None,
     ) -> "Game":
         """Construct a Game directly from a master seed.
 
@@ -101,8 +102,18 @@ class Game:
         publish ``descended`` on staircase descent. When False, no bus or
         whisperer is created and gameplay does not publish events (Sprint 2
         behavior preserved).
+
+        Sprint 11: ``forced_archetype`` (an archetype id string) overrides the
+        seed-derived archetype assignment for every floor in the run. Used
+        by the ``--archetype`` CLI flag.
         """
-        world = World(master_seed=seed, num_floors=num_floors, width=width, height=height)
+        world = World(
+            master_seed=seed,
+            num_floors=num_floors,
+            width=width,
+            height=height,
+            forced_archetype=forced_archetype,
+        )
         if not whisperer:
             game = cls(world)
             game.seed = seed
@@ -130,7 +141,11 @@ class Game:
         bus.publish(
             Event(
                 type=EventType.RUN_STARTED.value,
-                payload={"seed": seed, "num_floors": num_floors},
+                payload={
+                    "seed": seed,
+                    "num_floors": num_floors,
+                    "archetype": game._archetype_id_for_floor(0),
+                },
                 turn=0,
                 floor=0,
             )
@@ -203,7 +218,11 @@ class Game:
             self.events.publish(
                 Event(
                     type=EventType.DESCENDED.value,
-                    payload={"from": from_floor, "to": self.current_floor_index},
+                    payload={
+                        "from": from_floor,
+                        "to": self.current_floor_index,
+                        "archetype": self._archetype_id_for_floor(self.current_floor_index),
+                    },
                     turn=self.turns,
                     floor=self.current_floor_index,
                 )
@@ -280,6 +299,7 @@ class Game:
                 payload={
                     "floor": self.current_floor_index,
                     "room_id": room_id,
+                    "archetype": self._archetype_id_for_floor(self.current_floor_index),
                 },
                 turn=turn,
                 floor=self.current_floor_index,
@@ -307,12 +327,31 @@ class Game:
         self.events.publish(
             Event(
                 type=EventType.FIRST_SIGHT.value,
-                payload={"kind": kind, "category": category},
+                payload={
+                    "kind": kind,
+                    "category": category,
+                    "archetype": self._archetype_id_for_floor(self.current_floor_index),
+                },
                 turn=self.turns,
                 floor=self.current_floor_index,
             )
         )
         return True
+
+    # ---- Sprint 11: archetype lookup helper -----------------------------
+    def _archetype_id_for_floor(self, floor_index: int) -> Optional[str]:
+        """Return the archetype id for ``floor_index``, or None if unset.
+
+        Defensive: floors built outside the World may have ``archetype`` None.
+        """
+        try:
+            f = self.world.get_floor(floor_index)
+        except Exception:  # noqa: BLE001 -- defensive
+            return None
+        a = getattr(f, "archetype", None)
+        if a is None:
+            return None
+        return getattr(a, "id", None)
 
     # ---- Sprint 10: run lifecycle hook ----------------------------------
     def end_run(self, cause: str = "quit", summary: Optional[dict] = None) -> bool:
@@ -341,6 +380,7 @@ class Game:
             "cause": cause,
             "floors_reached": self.max_floor_reached + 1,
             "turns": self.turns,
+            "archetype": self._archetype_id_for_floor(self.current_floor_index),
         }
         if isinstance(summary, dict):
             payload["summary"] = summary
@@ -358,7 +398,10 @@ class Game:
         self.events.publish(
             Event(
                 type=EventType.EPITAPH.value,
-                payload={"cause": cause},
+                payload={
+                    "cause": cause,
+                    "archetype": self._archetype_id_for_floor(self.current_floor_index),
+                },
                 turn=epitaph_turn,
                 floor=self.current_floor_index,
             )
