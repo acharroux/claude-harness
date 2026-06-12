@@ -445,7 +445,7 @@ def make_game(args: argparse.Namespace, *, seed: Optional[int] = None) -> Game:
     audio_choice = getattr(args, "audio", "null")
     audio_adapter = audio_module.make_adapter(audio_choice)
     if args.no_whisperer:
-        return Game.from_seed(
+        game = Game.from_seed(
             seed=seed,
             num_floors=args.floors,
             width=args.width,
@@ -454,18 +454,25 @@ def make_game(args: argparse.Namespace, *, seed: Optional[int] = None) -> Game:
             forced_archetype=forced,
             audio=audio_adapter,
         )
-    return Game.from_seed(
-        seed=seed,
-        num_floors=args.floors,
-        width=args.width,
-        height=args.height,
-        whisperer=True,
-        adapter=args.whisperer,
-        budget=args.whisper_budget,
-        model=args.whisperer_model,
-        forced_archetype=forced,
-        audio=audio_adapter,
-    )
+    else:
+        game = Game.from_seed(
+            seed=seed,
+            num_floors=args.floors,
+            width=args.width,
+            height=args.height,
+            whisperer=True,
+            adapter=args.whisperer,
+            budget=args.whisper_budget,
+            model=args.whisperer_model,
+            forced_archetype=forced,
+            audio=audio_adapter,
+        )
+    # Sprint 12: stamp daily/seed_string provenance on the game so the
+    # chronicle metadata block can reflect them.
+    game._daily = bool(getattr(args, "daily", False))
+    ss = getattr(args, "seed_string", None)
+    game._seed_string = ss if isinstance(ss, str) and ss else None
+    return game
 
 
 def _dump_whispers_if_requested(game: Game, path: Optional[str]) -> None:
