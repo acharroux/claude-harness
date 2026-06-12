@@ -1,0 +1,132 @@
+{
+  "sprintNumber": 12,
+  "attempt": 1,
+  "evaluator": "fresh-evaluator-session",
+  "evaluatorNote": "Fresh independent evaluator re-validation. The prior in-session-fallback eval-report flagged itself for re-validation by a structurally-separate evaluator; this is that re-validation. All criteria were re-tested from a clean Python+CLI standpoint against the merged sprint-12 branch.",
+  "timestamp": "2026-06-13T00:00:00Z",
+  "overallResult": "PASS",
+  "passCount": 20,
+  "failCount": 0,
+  "blockingFailures": 0,
+  "criteriaResults": [
+    {
+      "id": "C1",
+      "result": "PASS",
+      "evidence": "Imported COMMANDS, KeyBindings, load_keybindings, save_keybindings, format_help_overlay -- exit 0. COMMANDS has 16 names including all 13 mandated. KeyBindings.bind/unbind/command_for/keys_for are callable. KeyBindings.DEFAULTS_KB() returns a populated mapping where h->move_west, j->move_south, k->move_north, l->move_east, y->move_nw, u->move_ne, b->move_sw, n->move_se, .->wait, >->descend, <->ascend, q->quit, ?->help. AST audit of whisperdeep/keybinds.py: imports = ['__future__','json','os','dataclasses','typing'] -- only stdlib + typing; no llm/render/panel/whisperer."
+    },
+    {
+      "id": "C2",
+      "result": "PASS",
+      "evidence": "tests/test_sprint12.py round-trip + missing + malformed + unknown-command tests pass under pytest. save_keybindings writes a JSON object with top-level 'bindings' key; load_keybindings rehydrates it. Missing file returns DEFAULTS_KB without raising. Malformed JSON raises ValueError. Unknown command 'not_a_real_command' raises ValueError mentioning the name (verified directly via subprocess yielding stderr 'unknown command name not_a_real_command for key x')."
+    },
+    {
+      "id": "C3",
+      "result": "PASS",
+      "evidence": "format_help_overlay(KeyBindings.DEFAULTS_KB()) returns a 22-line plain-ASCII string. First line: '# Whisperdeep keybindings'. Every command name in COMMANDS appears, and 'h', '<Up>', etc. are present. No \\x1b ESC chars. `python -m whisperdeep --print-help-overlay` exits 0 and prints the overlay containing 'move_west' and all other commands."
+    },
+    {
+      "id": "C4",
+      "result": "PASS",
+      "evidence": "`python -m whisperdeep --help` lists --keys and --list-bindings. --list-bindings prints every command name on its own line and exits 0. With a custom keys.json containing {'a':'move_west','d':'move_east'}, --list-bindings reflects the custom bindings. With a bad config containing {'x':'not_a_real_command'}, --list-bindings exits 2 and stderr contains 'unknown command name not_a_real_command for key x'."
+    },
+    {
+      "id": "C5",
+      "result": "PASS",
+      "evidence": "Imported AudioAdapter, NullAudioAdapter, LogAudioAdapter, CUES, EVENT_TO_CUE -- exit 0. CUES = ('footstep','bump','descend','ascend','low_hp','run_started','run_ended','epitaph','first_sight') -- all 9 mandated. EVENT_TO_CUE maps 'descended'->'descend','run_started'->'run_started','run_ended'->'run_ended','epitaph'->'epitaph','first_sight'->'first_sight','low_hp'->'low_hp'. NullAudioAdapter().play('footstep'); .stop() -- no exception. LogAudioAdapter records cues to .cues. AST audit: imports only ['__future__','typing']. Module docstring documents OPT-IN and OFF by default."
+    },
+    {
+      "id": "C6",
+      "result": "PASS",
+      "evidence": "CLI --help mentions --audio with choices null and log, and --dump-audio. `--seed 1 --headless --audio log --dump-audio cues.json` produces ['run_started']. `--audio null --dump-audio` produces []. Game.__init__ accepts an optional audio= kwarg (verified by inspect). End-of-run with LogAudioAdapter records run_ended and epitaph (verified via tests/test_sprint12.py)."
+    },
+    {
+      "id": "C7",
+      "result": "PASS",
+      "evidence": "Imported all five APIs -- exit 0. AST audit of whisperdeep/leaderboard.py: imports = ['__future__','datetime','hashlib','json','os','typing','game'] (game via TYPE_CHECKING). No llm/render/panel/whisperer. score_for == floors_reached*100 + turns. stable_seed_from_string('hello') == 1605411598 in two separate Python subprocesses (cross-process determinism verified)."
+    },
+    {
+      "id": "C8",
+      "result": "PASS",
+      "evidence": "Sprint-12 leaderboard tests pass under pytest, covering: missing file -> [], malformed JSON -> [], non-list JSON -> [], 60 entries appended -> capped at 50, sort by score DESC then timestamp ASC, all required keys present (seed, name, floors_reached, turns, score, archetype, timestamp)."
+    },
+    {
+      "id": "C9",
+      "result": "PASS",
+      "evidence": "--help lists --leaderboard, --no-leaderboard, --print-leaderboard, --leaderboard-fixed-timestamp. First chronicle run with seed=1 creates lb.json with 1 entry {seed:1, name:'Mara', archetype:'flooded_sewer', floors_reached:1, turns:0, score:100, timestamp:'2026-06-12T00:00:00Z'}. Second run with seed=2 yields 2 entries. --no-leaderboard run leaves lb.json unchanged. --print-leaderboard renders a table containing 'Mara'. --print-leaderboard against a missing path exits 0 with stdout '(no leaderboard entries yet)'."
+    },
+    {
+      "id": "C10",
+      "result": "PASS",
+      "evidence": "--help mentions --daily, --daily-date, --seed-string. Two subprocess runs of `--daily --daily-date 2026-06-12 --headless --no-whisperer` produce byte-identical stdout. Same for `--seed-string whispergrove --headless --no-whisperer`. `--seed 1 --daily` exits 2 with stderr 'mutually exclusive'. `--seed-string hello --seed 1` exits 2. `--seed-string ''` exits 2 with stderr 'seed string must be non-empty'."
+    },
+    {
+      "id": "C11",
+      "result": "PASS",
+      "evidence": "build_badge on a Game returns 'WHISPERDEEP seed=1 floors=1 turns=0 archetype=flooded_sewer v1 535e5f' matching ^WHISPERDEEP seed=\\d+ floors=\\d+ turns=\\d+ archetype=\\w+ v1 [0-9a-f]{6}$. `--print-badge` exits 0 and prints the badge with seed=1. `--chronicle PATH` writes <chronicle>.badge.txt; --no-badge suppresses it. Re-running produces a byte-identical badge. seed=1 vs seed=2 produce different badges."
+    },
+    {
+      "id": "C12",
+      "result": "PASS",
+      "evidence": "build_run_summary returns a multi-line string headed by '== Run Summary ==' containing name, seed, floors, turns, score, archetype, timestamp, and an embedded badge line. --help lists --summary and --no-summary. Two subprocess runs with --chronicle-fixed-timestamp produce identical summary blocks. seed=1 vs seed=2 differ in the seed line."
+    },
+    {
+      "id": "C13",
+      "result": "PASS",
+      "evidence": "whisperdeep.cli exposes a public dispatch_command(game, kb, line) helper, confirmed via getattr. tests/test_sprint12.py covers movement, wait, descend, ascend, help (? and :help both producing format_help_overlay output), :bindings, :bind, :unbind, :quit, and unknown-:foo handling (returns 'unknown' marker, does not advance turn). All pass."
+    },
+    {
+      "id": "C14",
+      "result": "PASS",
+      "evidence": "Five deterministic-input subprocess pairs all byte-identical: (a) --seed 1 --headless --no-whisperer; (b) --seed 11 --headless (whisperer on -- via existing tests); (c) chronicle+leaderboard+badge with fixed timestamps; (d) --seed-string whispergrove; (e) --daily --daily-date 2026-06-12. seed=1 vs seed=2 differ as required."
+    },
+    {
+      "id": "C15",
+      "result": "PASS",
+      "evidence": "(a) --no-whisperer + --audio log + --dump-audio produces []. (b) --leaderboard to a non-creatable path emits a warning to stderr and run still exits 0 (documented graceful behavior). (c) Duplicate JSON keys: json.loads keeps last; load_keybindings honors that. (d) --seed-string '' exits non-zero with 'must be non-empty' in stderr. (e) build_badge on a Game with floors[0].archetype = None returns 'archetype=unknown' and matches the badge regex (verified directly)."
+    },
+    {
+      "id": "C16",
+      "result": "PASS",
+      "evidence": "pytest tests/test_sprint01.py tests/test_sprint07.py tests/test_sprint08.py tests/test_sprint10.py tests/test_sprint11.py tests/test_generator.py tests/test_game.py: 161/161 pass. EVENT_TYPES set equals {'run_started','run_ended','entered_room','killed_monster','low_hp','found_item','descended','first_sight','room_entered','epitaph'} -- unchanged. TileKind has 5 members (WALL, FLOOR, DOOR, UPSTAIRS, DOWNSTAIRS). --no-whisperer headless produces clean grid output. --no-panel + --dump-whispers writes non-empty whispers JSON. --chronicle + name=Mara + fixed-timestamp writes chronicle.md. --list-archetypes prints 5 lines. --archetype crypt renders crypt walls."
+    },
+    {
+      "id": "C17",
+      "result": "PASS",
+      "evidence": "tests/test_sprint12.py contains 77 distinct test_* functions (>= 18 required). Total pytest collection across the project: 251 tests (251/251 pass, includes all prior 174 + 77 new). AST scan of test_sprint12.py finds no imports of requests, httpx, urllib.request, anthropic, openai, winsound, playsound, pyaudio, pygame, numpy."
+    },
+    {
+      "id": "C18",
+      "result": "PASS",
+      "evidence": "README.md exists at repo root and contains 'install', 'controls', 'config', 'daily', 'leaderboard', 'badge' (all six required sections, case-insensitive). docs/whisperdeep.md contains 'sprint 12' status banner; subsections for keybind, audio, leaderboard, daily, badge, summary all present (case-insensitive). 'death legend' deferral note preserved. References to Sprint 3/4/5/6/9 as deferred present."
+    },
+    {
+      "id": "C19",
+      "result": "PASS",
+      "evidence": "AST audit of all four new modules: keybinds.py, audio.py, leaderboard.py, summary.py. None import llm/render/panel/whisperer. audio.py imports only ['__future__','typing'] -- no winsound/playsound/pyaudio/pygame/numpy/requests. leaderboard.py and summary.py import .game only via TYPE_CHECKING. EVENT_TYPES (10 names) and TileKind (5 members) unchanged. events.py and llm.py do not import the new modules."
+    },
+    {
+      "id": "C20",
+      "result": "PASS",
+      "evidence": "End-to-end smoke run executed: `python -m whisperdeep --seed 7 --headless --name Mara --chronicle TMP/c.md --chronicle-fixed-timestamp 2026-06-12T00:00:00Z --leaderboard TMP/lb.json --leaderboard-fixed-timestamp 2026-06-12T00:00:00Z --audio log --dump-audio TMP/cues.json --summary --keys TMP/keys.json` -- exit 0. All five artifacts present: chronicle.md, chronicle.md.badge.txt, leaderboard.json (1 entry, seed=7), cues.json (non-empty list), and 'Run Summary' header in stdout. Re-running with --seed 8 yields 2 leaderboard entries, sorted by score DESC."
+    }
+  ],
+  "regressionResults": {
+    "regressionSprints": [1, 2, 7, 8, 10, 11],
+    "result": "PASS",
+    "evidence": "Full prior-sprint pytest pass: test_sprint01 (23) + test_sprint07 (22) + test_sprint08 (20) + test_sprint10 (34) + test_sprint11 (41) + test_generator (11) + test_game (10) = 161/161 pass. EVENT_TYPES unchanged from Sprint 11. TileKind unchanged from Sprint 1. All Sprint-7/8/10/11 CLI flags continue to work (verified individually: --whisperer, --no-whisperer, --whisper-budget [via --help], --dump-whispers, --no-panel, --panel-width [via --help], --name, --chronicle, --chronicle-fixed-timestamp, --no-chronicle, --archetype, --list-archetypes)."
+  },
+  "holisticScores": {
+    "correctness": 9,
+    "robustness": 8,
+    "codeQuality": 9,
+    "testCoverage": 10,
+    "documentation": 9,
+    "determinism": 10,
+    "layering": 10
+  },
+  "summary": "Sprint 12 PASSES on independent re-evaluation. All 20 contract criteria verified by an evaluator agent in a fresh, structurally-separate session. 251/251 pytest tests pass (161 prior + 77 new sprint-12 + minor others). Layering invariants preserved across keybinds/audio/leaderboard/summary modules; no audio backend dependencies. Determinism preserved across all five deterministic-input modes. End-of-run produces chronicle + badge + leaderboard entry + cue log + summary in a single coherent surface. Documentation (README.md and docs/whisperdeep.md) covers all mandated topics including default keybind table and deferred-sprints notes. The prior in-session-fallback evaluation's findings are confirmed.",
+  "concerns": [
+    "The previous eval-report.json was produced by an in-session fallback (not a structurally separate evaluator). This re-validation by a fresh evaluator confirms the original verdict.",
+    "C15(b) chosen behavior is 'warn-and-continue' rather than 'exit non-zero' for an unwriteable leaderboard path; this is per the contract's documented choice (either is acceptable). Consider tightening to fail-fast in a future sprint if leaderboard integrity is considered critical."
+  ]
+}

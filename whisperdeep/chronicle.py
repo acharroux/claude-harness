@@ -224,6 +224,13 @@ def build_chronicle(
     lines.append(f"- turns: {turns}")
     lines.append(f"- adapter: {adapter}")
     lines.append(f"- timestamp: {timestamp}")
+    # Sprint 12 (additive): record daily/seed_string provenance when set.
+    daily = getattr(game, "_daily", None)
+    if daily:
+        lines.append("- daily: true")
+    seed_string = getattr(game, "_seed_string", None)
+    if isinstance(seed_string, str) and seed_string:
+        lines.append(f"- seed_string: {seed_string}")
     lines.append("")
 
     # Section 3: Notable Events.

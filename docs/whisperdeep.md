@@ -6,6 +6,116 @@ This is the game built sprint-by-sprint inside this repository by the
 Planner–Generator–Evaluator harness. The harness tooling itself lives in
 `harness/` and is documented in [the top-level README](../README.md).
 
+> **Status — Sprint 12: Polish (Keybinds, Audio, Leaderboard, Badges,
+> Run Summary).** This is the final polish sprint. Four loosely-coupled
+> pieces ship on top of the playable Sprints 1/2/7/8/10/11 core.
+>
+> **(Keybinds)** The interactive loop now consults a small `KeyBindings`
+> registry (`whisperdeep/keybinds.py`) instead of a hard-coded `moves`
+> dict. Defaults cover vi-keys (`h/j/k/l/y/u/b/n`) AND the ANSI
+> arrow-key escape sequences, plus stairs (`>` `<`), wait (`.`), help
+> (`?`), and quit (`q`). A `:`-prefixed in-game **command prompt**
+> dispatches power-user actions: `:quit`, `:help`, `:descend`, `:ascend`,
+> `:bindings`, `:summary`, `:bind <command> <key>`, `:unbind <key>`.
+> Bindings load from a JSON file via `--keys PATH` or the
+> `WHISPERDEEP_KEYS` environment variable; missing files fall back to
+> defaults, malformed files raise a clear error, and unknown command
+> names are rejected with the offending entry named. Two info-only CLI
+> flags: `--list-bindings` (one-line-per-command summary) and
+> `--print-help-overlay` (the in-game help block).
+>
+> **Default keybind table** (every command + the keys bound to it):
+>
+> | command     | default keys                |
+> | ----------- | --------------------------- |
+> | move_west   | `h`, `<Left>`               |
+> | move_east   | `l`, `<Right>`              |
+> | move_north  | `k`, `<Up>`                 |
+> | move_south  | `j`, `<Down>`               |
+> | move_nw     | `y`                         |
+> | move_ne     | `u`                         |
+> | move_sw     | `b`                         |
+> | move_se     | `n`                         |
+> | wait        | `.`                         |
+> | descend     | `>`                         |
+> | ascend      | `<`                         |
+> | quit        | `q`                         |
+> | help        | `?`                         |
+> | redraw      | `<Ctrl-L>`                  |
+> | summary     | (unbound; available via `:summary`) |
+> | bindings    | (unbound; available via `:bindings` or `?`) |
+>
+> **(Audio)** A pluggable, OPT-IN, terminal-friendly audio adapter
+> layer (`whisperdeep/audio.py`). Audio is **OFF by default**. The
+> module exposes an `AudioAdapter` Protocol, a silent `NullAudioAdapter`
+> (the default), and a recording `LogAudioAdapter` (used by tests). A
+> small cue registry (`CUES` + `EVENT_TO_CUE`) maps named cues
+> (`footstep`, `bump`, `descend`, `ascend`, `low_hp`, `run_started`,
+> `run_ended`, `epitaph`, `first_sight`) to canonical event types so the
+> existing event bus drives audio without coupling. CLI flags
+> `--audio CHOICE` (`null` (default) | `log`) and `--dump-audio PATH`
+> wire and trace adapters. **No real audio backend (no
+> `winsound`/`playsound`/`pyaudio`/`pygame`/`numpy`) ships in this
+> sprint** — the architecture is shipped, real backends are a
+> future-sprint concern.
+>
+> **(Leaderboard)** A local JSON leaderboard
+> (`whisperdeep/leaderboard.py`) at `./leaderboard.json` (override via
+> `--leaderboard PATH`, disable via `--no-leaderboard`). Each entry has
+> required keys: `seed`, `name`, `floors_reached`, `turns`, `score`,
+> `archetype`, `timestamp` (ISO-8601 UTC `Z`). Score is
+> `floors_reached * 100 + turns`. Entries are sorted by score DESC then
+> timestamp ASC and capped at **50** entries. The file is auto-created
+> when missing; corrupt or non-list files are tolerated (treated as
+> empty). End-of-run, when a chronicle is also written, an entry is
+> appended (unless `--no-leaderboard`). `--print-leaderboard` shows the
+> top-10 and exits without starting a run.
+> `--leaderboard-fixed-timestamp ISO` pins the timestamp for
+> deterministic snapshot tests. Cloud sync / multi-user accounts are
+> explicitly out of scope; this is a local file only.
+>
+> **(Daily seed + shareable seed strings)** `--daily` derives the seed
+> from today's UTC date (`int(YYYYMMDD)`); e.g. 2026-06-12 →
+> `20260612`. `--daily-date YYYY-MM-DD` overrides the date for
+> reproducible CI runs. `--seed-string TEXT` hashes a human-readable
+> string deterministically: SHA-256 of the UTF-8 bytes, take the first 8
+> bytes as a big-endian unsigned int, then mod `2**31`. The same TEXT
+> yields the same seed forever, on every Python version on every
+> platform. (Python's built-in `hash()` is **not** used because it is
+> salted per process.) Passing more than one of `{--seed, --daily,
+> --seed-string}` is an error.
+>
+> **(Run badges)** Every run can produce a single-line ASCII **badge**
+> via `whisperdeep/summary.py:build_badge`. The canonical format is
+> exactly:
+>
+> ```
+> WHISPERDEEP seed=<S> floors=<F> turns=<T> archetype=<A> v1 <CHK>
+> ```
+>
+> where `<CHK>` is the first 6 lowercase hex chars of `sha256(prefix)`
+> with `prefix` being everything up to and including `v1`. Two runs
+> with identical `(seed, floors, turns, archetype)` produce identical
+> badges. CLI flags: `--print-badge` prints the badge and exits;
+> `--no-badge` suppresses the sibling `<chronicle>.badge.txt` file when
+> a chronicle is being written.
+>
+> **(Run summary)** A public `build_run_summary(game, *, name,
+> fixed_timestamp=None) -> str` returns a multi-line plain-text block
+> with header `== Run Summary ==`, then `name`, `seed`, `floors`,
+> `turns`, `score`, `archetype`, `timestamp`, optional `chronicle`,
+> optional `rank`, and the embedded `badge`. Default-on for headless
+> runs when `--chronicle` is set; gated by `--summary` / `--no-summary`
+> otherwise. With a fixed timestamp injected, the block is
+> byte-deterministic across processes for the same `(seed, name)`.
+>
+> **Sprints 3 (FOV+combat), 4 (items), 5 (monsters), 6 (save/load), and
+> 9 (director nudges + meta-memory) are NOT in tree** and are explicitly
+> deferred to future sprints; Sprint 12 does not depend on any of them.
+> The Sprint 10 deferral note about cross-run "death legends" (the
+> Whisperer reading prior chronicles in a future run) is also still in
+> effect.
+>
 > **Status — Sprint 11: Themed Archetypes & Palettes.** The dungeon now
 > has a **soul**. Each floor is assigned a thematic *archetype*
 > deterministically from `(master_seed, floor_index)`: at minimum

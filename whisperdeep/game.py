@@ -50,9 +50,14 @@ class Game:
         *,
         events: Optional[EventBus] = None,
         whisperer: Optional[object] = None,
+        audio: Optional[object] = None,
     ) -> None:
         self.world = world
         self.current_floor_index: int = 0
+        # Sprint 12: opt-in audio adapter. None disables audio entirely.
+        self.audio = audio
+        if audio is not None and events is not None:
+            self._wire_audio(events, audio)
         # Spawn the player on floor 0. We pick the first room's center if
         # available, otherwise the first walkable tile.
         floor0 = world.get_floor(0)
@@ -94,6 +99,7 @@ class Game:
         budget: Optional[int] = None,
         model: Optional[str] = None,
         forced_archetype: Optional[str] = None,
+        audio: Optional[object] = None,
     ) -> "Game":
         """Construct a Game directly from a master seed.
 
@@ -115,7 +121,7 @@ class Game:
             forced_archetype=forced_archetype,
         )
         if not whisperer:
-            game = cls(world)
+            game = cls(world, audio=audio)
             game.seed = seed
             game._adapter_name = "none"
             return game
@@ -131,7 +137,7 @@ class Game:
             seed=seed,
             budget=budget if budget is not None else DEFAULT_BUDGET,
         )
-        game = cls(world, events=bus, whisperer=wh)
+        game = cls(world, events=bus, whisperer=wh, audio=audio)
         # Sprint 10: stash the seed and adapter name on the Game so
         # downstream consumers (e.g., the Chronicle generator) can read
         # them without poking at the World/adapter internals.
@@ -337,6 +343,36 @@ class Game:
             )
         )
         return True
+
+    # ---- Sprint 12: audio wiring ----------------------------------------
+    def _wire_audio(self, bus: "EventBus", audio: object) -> None:
+        """Subscribe ``audio.play`` to the event bus via EVENT_TO_CUE.
+
+        Imported lazily so the audio module remains optional.
+        """
+        from .audio import EVENT_TO_CUE
+
+        def _handle(ev: Event) -> None:
+            cue = EVENT_TO_CUE.get(ev.type)
+            if cue:
+                try:
+                    audio.play(cue)  # type: ignore[attr-defined]
+                except Exception:  # noqa: BLE001 -- audio must never crash run
+                    pass
+
+        bus.subscribe("*", _handle)
+
+    def attach_audio(self, audio: object) -> None:
+        """Attach an audio adapter post-construction.
+
+        For Games constructed without an event bus (whisperer=False) this
+        merely stores the adapter; without a bus there is no event source
+        to drive cues, but explicit calls to ``self.audio.play(...)``
+        still work.
+        """
+        self.audio = audio
+        if audio is not None and self.events is not None:
+            self._wire_audio(self.events, audio)
 
     # ---- Sprint 11: archetype lookup helper -----------------------------
     def _archetype_id_for_floor(self, floor_index: int) -> Optional[str]:
