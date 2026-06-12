@@ -145,6 +145,44 @@ def build_parser() -> argparse.ArgumentParser:
             f"(default: {DEFAULT_PANEL_WIDTH})."
         ),
     )
+    # Sprint 10 chronicle flags
+    p.add_argument(
+        "--name",
+        type=str,
+        default=None,
+        help=(
+            "Character name to embed in the run chronicle. When omitted, "
+            "a placeholder ('the unnamed') is used."
+        ),
+    )
+    p.add_argument(
+        "--chronicle",
+        metavar="PATH",
+        default=None,
+        help=(
+            "Write a Markdown chronicle of the run to PATH at end-of-run. "
+            "Triggers Game.end_run() so a final epitaph is published. "
+            "When omitted, no chronicle is written (default-off)."
+        ),
+    )
+    p.add_argument(
+        "--chronicle-fixed-timestamp",
+        metavar="ISO",
+        default=None,
+        help=(
+            "Override the chronicle's timestamp with ISO (intended for "
+            "deterministic snapshot tests)."
+        ),
+    )
+    p.add_argument(
+        "--no-chronicle",
+        dest="no_chronicle",
+        action="store_true",
+        help=(
+            "Explicitly disable chronicle writing even if --chronicle is "
+            "passed. Mainly useful for tests."
+        ),
+    )
     return p
 
 
@@ -181,6 +219,32 @@ def _dump_whispers_if_requested(game: Game, path: Optional[str]) -> None:
         json.dump(payload, fh, indent=2, sort_keys=True)
 
 
+def _write_chronicle_if_requested(game: Game, args: argparse.Namespace) -> None:
+    """Sprint 10: end the run and write a chronicle when --chronicle is set.
+
+    Calling this helper is a no-op when ``--chronicle`` is unset or
+    ``--no-chronicle`` is set.
+    """
+    if getattr(args, "no_chronicle", False):
+        return
+    chronicle_path = getattr(args, "chronicle", None)
+    if not chronicle_path:
+        return
+    # Ensure run lifecycle events (run_ended + epitaph) fire before we
+    # snapshot the whisper log into the chronicle.
+    try:
+        game.end_run(cause="quit")
+    except Exception:  # pragma: no cover -- defensive
+        pass
+    from .chronicle import write_chronicle as _write
+    _write(
+        game,
+        chronicle_path,
+        name=getattr(args, "name", None),
+        fixed_timestamp=getattr(args, "chronicle_fixed_timestamp", None),
+    )
+
+
 def run_headless(args: argparse.Namespace, out=sys.stdout) -> int:
     game = make_game(args)
     # Adapter banner: print only when the Whisperer is active.
@@ -197,6 +261,7 @@ def run_headless(args: argparse.Namespace, out=sys.stdout) -> int:
         )
     out.write("\n")
     _dump_whispers_if_requested(game, args.dump_whispers)
+    _write_chronicle_if_requested(game, args)
     return 0
 
 
@@ -221,12 +286,14 @@ def run_interactive(args: argparse.Namespace) -> int:  # pragma: no cover
         except (EOFError, KeyboardInterrupt):
             print()
             _dump_whispers_if_requested(game, args.dump_whispers)
+            _write_chronicle_if_requested(game, args)
             return 0
         if not line:
             continue
         cmd = line[0]
         if cmd == "q":
             _dump_whispers_if_requested(game, args.dump_whispers)
+            _write_chronicle_if_requested(game, args)
             return 0
         elif cmd in moves:
             dx, dy = moves[cmd]
