@@ -6,17 +6,29 @@ This is the game built sprint-by-sprint inside this repository by the
 Planner–Generator–Evaluator harness. The harness tooling itself lives in
 `harness/` and is documented in [the top-level README](../README.md).
 
-> **Status — Sprint 7: Whisperer Adapter & Event Bus.** The dungeon now
-> raises in-game events on a structured event bus, a *Whisperer* service
-> consumes those events and produces 1-3 sentence "whispers" via a
-> pluggable LLM adapter, and a hard token-budget guardrail forces a
-> graceful degrade to a deterministic offline prose pool when the budget
-> is exhausted or a network call fails. **Sprint 7 is plumbing only —
-> whispers are NOT yet rendered inside the dungeon frame.** The visible
-> ASCII output of `--headless` runs is byte-identical to the pre-Whisperer
-> Sprint-2 frame for the same seed (modulo a single opt-in
-> `# whisperer: <adapter>` banner line). The Whisperer panel UI lands in
-> Sprint 8.
+> **Status — Sprint 8: Whispers in Play.** The Whisperer is now visible
+> in-game: each headless run composites a fixed-size **whisper panel** to
+> the right of the dungeon grid (two-space gutter, 30 columns by 12 rows
+> by default), so players can actually read the prose. Two new event
+> sources land in this sprint: **first-sight naming** mints an evocative
+> name the first time the player encounters a particular monster or item
+> kind (and the name is reused for the rest of the run), and
+> **atmospheric room prose** fires when the player enters a
+> previously-unseen room (deduped per `(floor, room_id)` for the run).
+> Determinism, the Sprint-2 byte-level grid contract, and the no-network
+> test posture from Sprint 7 are all preserved. The original
+> `render_frame(game)` still returns the bare dungeon grid; the
+> composite frame is produced by `render_frame_with_whispers` and used
+> by the default `--headless` CLI.
+>
+> **Status — Sprint 7: Whisperer Adapter & Event Bus** *(superseded by
+> Sprint 8 for the "plumbing-only" note — whispers ARE rendered in the
+> frame now)*. The dungeon raises in-game events on a structured event
+> bus, a *Whisperer* service consumes those events and produces 1-3
+> sentence "whispers" via a pluggable LLM adapter, and a hard
+> token-budget guardrail forces a graceful degrade to a deterministic
+> offline prose pool when the budget is exhausted or a network call
+> fails.
 
 ---
 
@@ -215,6 +227,111 @@ remains pluggable:
 * `whisperdeep.game` imports `events` (so it can publish), but
   `whisperer` and `llm` are imported lazily inside `Game.from_seed` —
   Game-side gameplay never imports a concrete adapter.
+
+## Whispers in Play (Sprint 8)
+
+Sprint 8 makes the Whisperer **visible**. Three additions land:
+
+1. an in-frame **whisper panel** rendered to the right of the dungeon
+   grid in default `--headless` runs;
+2. **first-sight naming** — the first time the player meets a particular
+   monster or item kind, the Whisperer mints an evocative name that is
+   reused for the rest of the run;
+3. **atmospheric room prose** — when the player enters a
+   previously-unseen room, the Whisperer emits a 1-2 sentence room
+   description (deduped per `(floor, room_id)` for the run).
+
+### Panel layout
+
+The panel sits **right-of-grid**: each rendered row is
+`<grid_row><gutter><panel_row>` with a two-space gutter. The default
+panel is **30 columns wide** by **12 rows tall**, padded to those exact
+dimensions on every line so the dungeon does not jitter. The panel
+displays the most-recent whispers with newest at the bottom; older
+whispers fall out of the visible window when more whispers exist than
+fit. The whisper log itself (`game.whisperer.whispers`) is never
+mutated — only the rendered view is windowed.
+
+The panel is plain ASCII (with optional box-drawing characters allowed).
+There are no curses, no colour codes, no ANSI styling, no input
+changes — Sprint 8 stays text-only.
+
+### Per-category visual markers
+
+Each whisper carries a one-character prefix marker so the categories are
+visually distinguishable in the panel:
+
+| Category               | Marker | Meaning                          |
+| ---------------------- | :----: | -------------------------------- |
+| `room_entered`         | `~`    | Atmospheric room prose.          |
+| `first_sight`          | `*`    | A new name has been minted.      |
+| everything else        | `>`    | Generic whisper.                 |
+
+Continuation rows of a wrapped whisper are indented two spaces so the
+visual grouping is obvious.
+
+### New canonical event types
+
+Sprint 8 extends `EVENT_TYPES` (in `whisperdeep.events`) with two
+additional canonical names. The Sprint-7 originals remain present and
+unchanged.
+
+| Event type     | Payload                                        | Fires when                                                                |
+| -------------- | ---------------------------------------------- | ------------------------------------------------------------------------- |
+| `first_sight`  | `{"kind": str, "category": "monster"|"item"}`  | Player encounters a kind they have not seen this run (idempotent).        |
+| `room_entered` | `{"floor": int, "room_id": int}`               | Player enters a room not yet visited; deduped per `(floor, room_id)`.     |
+
+### First-sight name template
+
+`first_sight` pool entries contain a `{name}` placeholder (Python
+`str.format`-style); the Whisperer mints a name on first sight and
+substitutes the placeholder in the rendered whisper text. The
+substitution is exact — the placeholder never appears verbatim in the
+final whisper. `${name}` is also recognized for compatibility.
+
+The mint is deterministic: a per-Whisperer RNG (seeded the same way as
+the offline adapter) chooses an adjective from a small fixed pool and
+combines it with the kind string (e.g. `"creeping goblin"`). Re-firing
+`first_sight` for the same kind reuses the previously-minted name and
+does not produce a second whisper.
+
+### Per-(floor, room_id) dedupe
+
+`room_entered` is deduped on the `(floor, room_id)` pair within a run.
+Re-entering a room that already produced a whisper this run is a no-op:
+no new event is published by the Game and (defensively) the Whisperer
+itself also drops the duplicate.
+
+### CLI flags introduced in Sprint 8
+
+| Flag                    | Default           | Meaning                                                                        |
+| ----------------------- | :---------------: | ------------------------------------------------------------------------------ |
+| `--no-panel`            | off               | Suppress the whisper panel without disabling the Whisperer; whispers still accumulate in the log and `--dump-whispers` still works. |
+| `--panel-width N`       | `30`              | Width of the whisper panel column (right-of-grid layout).                      |
+| `--no-whisperer`        | off (Sprint 7)    | Disable the Whisperer entirely (no bus, no banner, no panel).                  |
+
+The default `--headless` run renders the composite **grid + panel**
+output. `--no-panel` keeps the Whisperer running but renders the
+Sprint-2 grid only. `--no-whisperer` is the strongest off-switch and
+remains byte-deterministic for the same seed.
+
+### `Game.observe_kind(kind, category)`
+
+The integration hook for first-sight naming. Calling
+`game.observe_kind("goblin", category="monster")` publishes a
+`first_sight` event for that kind. The hook is idempotent for the run
+(repeat calls for the same kind are no-ops) and is a safe no-op when
+the Game was constructed with `whisperer=False`.
+
+### Determinism
+
+With `--seed N --headless` and the offline adapter, the FULL stdout
+(banner, dungeon grid, whisper panel, minted names) is byte-identical
+across separate processes for the same seed. Different seeds yield
+different output. `--seed N --headless --dump-whispers PATH` continues
+to produce identical JSON whisper arrays for the same seed (extending
+Sprint 7's dump-determinism contract to the new `first_sight` and
+`room_entered` event types).
 
 ## Tests
 
