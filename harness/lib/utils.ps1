@@ -75,6 +75,30 @@ function Invoke-NativeCommand {
     }
 }
 
+# Safe jq wrapper: suppresses NativeCommandError (PS 5.1 raises it from stderr even on
+# success) and returns the captured output as a trimmed string.  Returns empty string on
+# any jq failure; callers check the returned value, not $LASTEXITCODE.
+# Usage: Invoke-JqCapture -Filter '.foo // empty' [-InputFile path] [-RawInput]
+function Invoke-JqCapture {
+    param(
+        [Parameter(Mandatory)][string]$Filter,
+        [string]$InputFile = '',
+        [string[]]$ExtraArgs = @()
+    )
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'SilentlyContinue'
+    if ($InputFile) {
+        $out = & jq -r @ExtraArgs $Filter $InputFile 2>$null
+    } else {
+        $out = & jq -r @ExtraArgs $Filter 2>$null
+    }
+    $ok = $LASTEXITCODE -eq 0
+    $ErrorActionPreference = $prev
+    if (-not $ok -or $null -eq $out) { return '' }
+    if ($out -is [array]) { return ($out -join '') }
+    return "$out".Trim()
+}
+
 function Stop-WithError {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Message)
     Write-LogError @Message
