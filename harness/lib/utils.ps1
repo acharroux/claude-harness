@@ -59,7 +59,17 @@ function Invoke-NativeCommand {
         [Parameter(Mandatory)][string]$FilePath,
         [string[]]$Arguments = @()
     )
-    & $FilePath @Arguments
+    # PS 5.1 converts native-command stderr into a terminating NativeCommandError
+    # under $ErrorActionPreference = 'Stop', even when the command exits 0 (e.g.
+    # `git checkout -b` printing "Switched to a new branch" on stderr).
+    # Use try/catch and rely solely on $LASTEXITCODE for real failure detection.
+    try {
+        & $FilePath @Arguments
+    } catch {
+        if ($LASTEXITCODE -ne 0) {
+            throw "Command failed ($LASTEXITCODE): $FilePath $($Arguments -join ' ')"
+        }
+    }
     if ($LASTEXITCODE -ne 0) {
         throw "Command failed ($LASTEXITCODE): $FilePath $($Arguments -join ' ')"
     }
