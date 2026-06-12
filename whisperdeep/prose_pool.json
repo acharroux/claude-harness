@@ -1,0 +1,79 @@
+{
+  "run_started": [
+    "The dungeon exhales. Your boots find stone, and the dark leans in.",
+    "A run begins. The deep is patient and the deep is hungry.",
+    "Torchlight catches dust older than your name. Step lightly.",
+    "Somewhere below, a door waits to be opened by you specifically.",
+    "The threshold accepts you. It does not promise to give you back.",
+    "First breath. The walls seem to be counting.",
+    "Welcome, traveler. The map is a rumor; the monsters are not.",
+    "Your shadow goes ahead of you. It has been here before.",
+    "Begin. The deep keeps its own ledger of every footstep."
+  ],
+  "run_ended": [
+    "The deep closes its book on you.",
+    "The tally is final. The dungeon turns the page.",
+    "A run ends. The corridors forget your face quickly.",
+    "Silence claims the chamber. Somewhere, a door swings shut.",
+    "The torch gutters out. So does the story.",
+    "The deep keeps your name now, whether you wanted it to or not.",
+    "End of song. The walls were always listening.",
+    "Your last footprint joins the others in the dust.",
+    "Done. The dungeon will sleep, briefly, before the next traveler."
+  ],
+  "entered_room": [
+    "The room receives you. It has had practice at this.",
+    "A new chamber. The air tastes faintly of iron and old paper.",
+    "You step into a wider dark. Something exhales somewhere.",
+    "The walls open up; the silence does not.",
+    "A room. Stones set by hands long abandoned by their owners.",
+    "Cold floor under your boots. The ceiling is uninterested.",
+    "You enter, and the room makes small adjustments.",
+    "Another chamber, another patient audience of stones.",
+    "The doorway gives you to the room. The room considers you."
+  ],
+  "killed_monster": [
+    "The thing falls. The dungeon barely notes it.",
+    "One fewer mouth in the dark. The deep adjusts.",
+    "Your weapon ends an argument the creature did not know it was having.",
+    "Stillness. Then the small sound of something settling forever.",
+    "The monster's last thought, if it had one, is now yours by default.",
+    "The body folds. The corridor remembers its quiet.",
+    "Killed. The dungeon files this under 'expected'.",
+    "It dies the way it lived: in the dark, abruptly.",
+    "A red ledger entry. The deep does not balance the books in your favor."
+  ],
+  "low_hp": [
+    "Your blood is louder than your footsteps now.",
+    "The edges of your vision agree to disagree.",
+    "You are running low on the kind of luck that comes in pints.",
+    "The dungeon notices you breathing harder. It approves.",
+    "One more wrong step and the corridor will keep you.",
+    "Your hands are not as steady as they were a room ago.",
+    "Low. The deep enjoys this part the most.",
+    "A wound speaks for you. It says: turn back, perhaps.",
+    "The torch flickers in time with your pulse, and your pulse is unreliable."
+  ],
+  "found_item": [
+    "An object, abandoned by someone who is no longer using it.",
+    "The dungeon offers a gift. The dungeon never offers nothing.",
+    "Your fingers close on something cold and approximately useful.",
+    "Found: a small kindness from a previous victim.",
+    "The item waits as if it expected you. Perhaps it did.",
+    "You lift it. The weight is reassuring; the provenance is not.",
+    "An item joins your pack. Your pack is heavier with stories now.",
+    "The deep is generous today. The deep is rarely generous twice.",
+    "A find. Examine it later, when there is light enough for hope."
+  ],
+  "descended": [
+    "You go down. The deep makes room for you.",
+    "Another floor. The air is older here.",
+    "The stairs end. A new dark begins.",
+    "Down. The previous floor closes behind you, perhaps for good.",
+    "You descend. The dungeon's heart is somewhere below, still beating.",
+    "Lower. The walls are colder and a great deal more attentive.",
+    "Another step deeper into the ledger of the deep.",
+    "Below. The torch finds new dust to disturb.",
+    "You go down, and the deep shifts to receive you."
+  ]
+}

@@ -10,6 +10,14 @@ Movement rules (Sprint 1 + Sprint 2):
 - Stepping onto '>' does NOT auto-descend; the player must invoke `descend()`.
 - Same for '<' / `ascend()`. This keeps movement and floor transitions
   cleanly separable for testing.
+
+Sprint 7 wires the Whisperer into the Game lifecycle. When ``whisperer=True``
+(the default), :meth:`Game.from_seed` creates an EventBus, picks an adapter
+via the lazily-imported adapter factory, and constructs a Whisperer that
+subscribes to the bus. The Game publishes ``run_started`` on construction
+and ``descended`` whenever the player descends a staircase. When
+``whisperer=False`` the Game is unchanged from Sprint 2 (no bus, no
+whisperer, no events).
 """
 from __future__ import annotations
 
@@ -17,12 +25,19 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 
 from .entity import Player
+from .events import Event, EventBus, EventType
 from .floor import Floor
 from .world import World
 
 
 class Game:
-    def __init__(self, world: World) -> None:
+    def __init__(
+        self,
+        world: World,
+        *,
+        events: Optional[EventBus] = None,
+        whisperer: Optional[object] = None,
+    ) -> None:
         self.world = world
         self.current_floor_index: int = 0
         # Spawn the player on floor 0. We pick the first room's center if
@@ -32,6 +47,9 @@ class Game:
         self.player = Player(x=spawn[0], y=spawn[1])
         # Number of player-driven actions taken (turn counter).
         self.turns: int = 0
+        # Sprint 7: optional event bus + whisperer.
+        self.events: Optional[EventBus] = events
+        self.whisperer = whisperer
 
     # ---- factories -------------------------------------------------------
     @classmethod
@@ -42,14 +60,44 @@ class Game:
         num_floors: int = 3,
         width: int = 80,
         height: int = 40,
+        whisperer: bool = True,
+        adapter: str = "offline",
+        budget: Optional[int] = None,
     ) -> "Game":
-        """Construct a Game directly from a master seed (Sprint 1 C7).
+        """Construct a Game directly from a master seed.
 
-        This is the canonical "give me a game" factory; the CLI uses it,
-        and tests can use it without juggling a World by hand.
+        When ``whisperer`` is True (default), an EventBus and Whisperer are
+        wired up; the Game publishes ``run_started`` immediately and will
+        publish ``descended`` on staircase descent. When False, no bus or
+        whisperer is created and gameplay does not publish events (Sprint 2
+        behavior preserved).
         """
         world = World(master_seed=seed, num_floors=num_floors, width=width, height=height)
-        return cls(world)
+        if not whisperer:
+            return cls(world)
+        # Lazy imports keep Game's module-level imports adapter-free.
+        from .adapter_factory import make_adapter
+        from .whisperer import DEFAULT_BUDGET, Whisperer
+
+        bus = EventBus()
+        llm = make_adapter(adapter, seed=seed)
+        wh = Whisperer(
+            adapter=llm,
+            bus=bus,
+            seed=seed,
+            budget=budget if budget is not None else DEFAULT_BUDGET,
+        )
+        game = cls(world, events=bus, whisperer=wh)
+        # Publish the run_started event AFTER subscribing.
+        bus.publish(
+            Event(
+                type=EventType.RUN_STARTED.value,
+                payload={"seed": seed, "num_floors": num_floors},
+                turn=0,
+                floor=0,
+            )
+        )
+        return game
 
     # ---- accessors -------------------------------------------------------
     @property
@@ -71,9 +119,6 @@ class Game:
         """Attempt to move the player by (dx,dy). Returns True iff moved.
 
         A wall bump increments the turn counter but does NOT move the player.
-        (We still consider a wall bump a "turn" so future combat / time
-        systems behave consistently. Sprint 2 only requires position-unchanged,
-        which holds either way.)
         """
         nx = self.player.x + dx
         ny = self.player.y + dy
@@ -92,7 +137,8 @@ class Game:
         """If standing on '>', go to the next floor and place the player at '<'.
 
         Returns True on success, False if not standing on '>' or already on
-        the last floor.
+        the last floor. On success and when the bus is wired, publishes a
+        ``descended`` event.
         """
         floor = self.floor
         tile = floor.get(self.player.x, self.player.y)
@@ -100,21 +146,27 @@ class Game:
             return False
         if self.world.is_last(self.current_floor_index):
             return False
+        from_floor = self.current_floor_index
         self.current_floor_index += 1
         new_floor = self.floor
         target = new_floor.upstairs_pos
         if target is None:
-            # Should not happen for non-first floors, but be defensive.
             target = self._choose_spawn(new_floor)
         self.player.x, self.player.y = target
+        self.turns += 1
+        if self.events is not None:
+            self.events.publish(
+                Event(
+                    type=EventType.DESCENDED.value,
+                    payload={"from": from_floor, "to": self.current_floor_index},
+                    turn=self.turns,
+                    floor=self.current_floor_index,
+                )
+            )
         return True
 
     def ascend(self) -> bool:
-        """If standing on '<', go to the previous floor and place the player at '>'.
-
-        Returns True on success, False if not standing on '<' or already on
-        floor 0.
-        """
+        """If standing on '<', go to the previous floor and place the player at '>'."""
         floor = self.floor
         tile = floor.get(self.player.x, self.player.y)
         if not tile.is_upstairs:
