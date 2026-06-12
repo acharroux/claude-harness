@@ -81,3 +81,6 @@ Commits:
 - `harness(contract): sprint-10 agreed`
 - `harness(sprint-10): epitaph event, prose pool, end_run, chronicle module, CLI flags [C1 C3 C4 C8]`
 - `harness(sprint-10): tests + docs for chronicle, epitaph, end_run hook [C2 C5 C6 C7 C9 C10 C11 C12 C13 C14 C15 C16 C17 C18]`
+- `harness(eval): sprint-10 result PASS (18/18, regressions 4/4)`
+
+**Eval result**: PASS — 18/18 criteria, 4/4 regression sprints (1, 2, 7, 8), 120/120 pytest.
