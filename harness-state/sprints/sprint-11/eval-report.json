@@ -1,0 +1,110 @@
+{
+  "sprintNumber": 11,
+  "attempt": 1,
+  "timestamp": "2026-06-12T20:30:00Z",
+  "overallResult": "PASS",
+  "scores": {
+    "Correctness": { "score": 9, "max": 10, "threshold": 7, "pass": true },
+    "Quality": { "score": 9, "max": 10, "threshold": 6, "pass": true },
+    "Completeness": { "score": 10, "max": 10, "threshold": 7, "pass": true },
+    "Robustness": { "score": 9, "max": 10, "threshold": 6, "pass": true }
+  },
+  "criteriaResults": [
+    {
+      "id": "C1",
+      "result": "PASS",
+      "evidence": "whisperdeep/archetypes.py importable; DungeonArchetype dataclass exposes id/name/glyph_overrides/palette/prose_tag/monster_pool fields; ARCHETYPES is a tuple of length 5 containing crypt/flooded_sewer/mushroom_forest/bone_library/whisperhall; get_archetype raises KeyError on unknown id; assign_archetype is deterministic. AST inspection confirms imports are limited to __future__, hashlib, re, dataclasses, typing, .tiles -- no llm/render/panel/chronicle/whisperer imports."
+    },
+    {
+      "id": "C2",
+      "result": "PASS",
+      "evidence": "5 archetypes registered with all four required ids plus the secret 'whisperhall'. Each has non-empty name and prose_tag, monster_pool of >=3 distinct strings (4 each), and glyph_overrides covering at least one of WALL/FLOOR/DOOR. All glyph override values are exactly 1 character; none collide with reserved glyphs '@'/'<'/'>'."
+    },
+    {
+      "id": "C3",
+      "result": "PASS",
+      "evidence": "assign_archetype(1,0) returns the same instance on repeated calls (object identity preserved). seed=42 floor 0..7 yields 3 distinct ids (>=2). floor=0 seed 1..50 yields 4 distinct ids (>=3). The secret archetype 'whisperhall' is reachable across the cross-product sweep (tests/test_sprint11.py::test_c3_secret_archetype_reachable iterates seeds 1..200, floors 0..7 and finds 44 hits). Every returned id is in ARCHETYPE_BY_ID. Note: the rare archetype does NOT appear in the two narrow sweeps the contract step text mentions individually (seed=42 floor sweep, floor=0 seed sweep); the test verifies reachability via a wider cross-product sweep, which satisfies the threshold 'secret archetype reachable in the sweep'."
+    },
+    {
+      "id": "C4",
+      "result": "PASS",
+      "evidence": "World(master_seed=1, num_floors=3).get_floor(i) returns Floor instances whose .archetype matches assign_archetype(1,i). Two calls to get_floor(0) return the same Floor instance (cache preserved). Floor still exposes rooms/walkable_tiles/snapshot/in_bounds/upstairs_pos/downstairs_pos/width/height/seed. Floor.snapshot() shape unchanged: tuple of tuples of TileKind value strings."
+    },
+    {
+      "id": "C5",
+      "result": "PASS",
+      "evidence": "seed=1 floor 0 archetype is 'flooded_sewer' which overrides WALL='='. render_frame contains '=' and not '#'. '@' present. All TileKind.WALL cells are walkable=False; all FLOOR/DOOR/UPSTAIRS/DOWNSTAIRS cells are walkable=True. No archetype's glyph_overrides contains '@', '<', or '>'. archetype.glyph_for(UPSTAIRS) and glyph_for(DOWNSTAIRS) defensively return '<' and '>' regardless of overrides."
+    },
+    {
+      "id": "C6",
+      "result": "PASS",
+      "evidence": "Two subprocess invocations of `python -m whisperdeep --seed 1 --headless --no-whisperer` produce byte-identical stdout. seed=1 vs seed=2 produce different stdout. Two whisperer-on invocations of `--seed 11 --headless` produce byte-identical composite frames. Two chronicle invocations with the same fixed timestamp produce byte-identical Markdown files; different seeds with the same fixed timestamp produce different files. All four C6 tests pass."
+    },
+    {
+      "id": "C7",
+      "result": "PASS",
+      "evidence": "Every archetype palette has all six required keys (wall_fg, floor_fg, door_fg, upstairs_fg, downstairs_fg, player_fg). Values are valid: int 0-255 or '#rrggbb'. palette_to_ansi(palette, 'wall_fg') returns '\\x1b[38;5;240m' for crypt (256-color) -- starts with ESC, ends with 'm'. palette_to_ansi(palette, 'unknown_key') returns ''. render_frame contains zero ESC characters by default. colorize_frame contains ESC sequences and stripping them via regex `\\x1b\\[[0-9;]*m` yields the same plain text as render_frame."
+    },
+    {
+      "id": "C8",
+      "result": "PASS",
+      "evidence": "prose_pool.json contains room_entered.<archetype_id> and first_sight.<archetype_id> sub-keys for all 5 archetypes; each has 6 distinct entries (>=4 required). Generic pools (room_entered, first_sight, run_started, run_ended, descended, killed_monster, low_hp, found_item, entered_room, epitaph) all retain >=8 distinct entries (regression preserved). When forced to archetype 'crypt', the spawn-room whisper is drawn from pool['room_entered.crypt']; when forced to 'mushroom_forest', from pool['room_entered.mushroom_forest'] -- archetype-aware selection observable and the texts differ."
+    },
+    {
+      "id": "C9",
+      "result": "PASS",
+      "evidence": "Whisper dataclass gained an `archetype` field. game.whisperer.dump() returns dicts with an 'archetype' key whose value equals world.get_floor(source_floor).archetype.id. `python -m whisperdeep --seed 1 --headless --dump-whispers TMP.json` writes a JSON list where every entry contains the 'archetype' field. Verified end-to-end."
+    },
+    {
+      "id": "C10",
+      "result": "PASS",
+      "evidence": "Floor.snapshot() returns tuples of TileKind value strings (kind contract intact). Floor.snapshot_glyphs() returns tuples of single-character glyphs reflecting archetype overrides. render_floor_glyphs(floor) is a top-level alias. render_floor(floor) emits variant glyphs. Both snapshots have the same shape (rows x cols)."
+    },
+    {
+      "id": "C11",
+      "result": "PASS",
+      "evidence": "`--help` mentions both --archetype and --list-archetypes. `--list-archetypes` prints 5 lines, one per registered archetype, each containing the id ('crypt', 'flooded_sewer', 'mushroom_forest', 'bone_library', 'whisperhall'); exit 0. `--seed 1 --headless --no-whisperer --archetype crypt` exits 0 and stdout contains '#' (crypt's wall override). `--archetype mushroom_forest` exits 0 and stdout contains '%' (mushroom wall override). `--archetype not_a_real_archetype` exits 2 with stderr containing the bad id, the valid id list, and a hint at --list-archetypes."
+    },
+    {
+      "id": "C12",
+      "result": "PASS",
+      "evidence": "DungeonArchetype with empty glyph_overrides renders WALL='#', FLOOR='.', DOOR='+'. Archetype that overrides only DOOR='/' keeps '#' and '.' for wall/floor. palette_to_ansi(palette, 'unknown_key') returns '' without raising (also for invalid value formats). Floor with archetype=None renders with Sprint-1/2 default glyphs and does not raise. All four C12 tests pass."
+    },
+    {
+      "id": "C13",
+      "result": "PASS",
+      "evidence": "tests/test_sprint07.py (22 tests), tests/test_sprint08.py (20 tests), tests/test_sprint10.py (34 tests) all pass unchanged. EVENT_TYPES contains the 10 required canonical types (run_started, run_ended, entered_room, killed_monster, low_hp, found_item, descended, first_sight, room_entered, epitaph). All Sprint-7/8/10 CLI flags continue to work; chronicle module + Game.end_run + epitaph behavior unchanged. Note: one Sprint-10 test (test_c14_glyphs_present_for_seed_1) was updated to pin --archetype crypt because seed=1 floor 0 now picks 'flooded_sewer' which overrides '#' to '='. The update is consistent with the contract's allowance: 'documented glyphs from Sprint 1/2 still appear when the seed-derived archetype does not override them'."
+    },
+    {
+      "id": "C14",
+      "result": "PASS",
+      "evidence": "tests/test_sprint01.py (23 tests), tests/test_generator.py (11 tests), tests/test_game.py (10 tests) all pass. Game.from_seed(seed=1, num_floors=3, whisperer=False) constructs a working Game; floor.in_bounds(0,0)=True; teleport+descend places player at upstairs landing on next floor. Floor.snapshot() still returns tuples of TileKind value strings. '@' renders correctly across archetypes. Three pre-Sprint-11 tests (test_render_uses_documented_glyph_set, test_initial_frame_shows_dungeon_and_player, test_c10_frame_uses_documented_glyph_set_only) were updated to pin forced_archetype='crypt' to keep their default-glyph assertions valid; this is permitted under C14's threshold ('Sprints 1, 2 still PASS; movement / multi-floor / walkability / Floor APIs intact')."
+    },
+    {
+      "id": "C15",
+      "result": "PASS",
+      "evidence": "tests/test_sprint11.py contains 41 distinct test_* functions (well above the >=14 threshold). All scenarios from C1 through C13/C14 are covered, plus C16 docs sanity, plus C17 layering. All 41 tests pass with no API keys. No top-level imports of requests, httpx, urllib.request, anthropic, or openai (verified via grep)."
+    },
+    {
+      "id": "C16",
+      "result": "PASS",
+      "evidence": "docs/whisperdeep.md gains a Sprint-11 status banner and a new 'Archetypes & Palettes (Sprint 11)' section. All 10 required topics present: archetype list with ids/names/prose_tags, glyph-variant Markdown table, palette descriptor format (256-color int OR #rrggbb hex), prose-tag convention with archetype-aware Whisperer selection, monster-pool stub note referencing Sprint 5, --archetype and --list-archetypes documented, determinism guarantee stated, colorize_frame opt-in note with Sprint-12 deferral mentioned."
+    },
+    {
+      "id": "C17",
+      "result": "PASS",
+      "evidence": "AST inspection: archetypes.py imports only __future__, hashlib, re, dataclasses, typing, .tiles -- no llm/render/panel/chronicle/whisperer imports. events.py does not import archetypes. llm.py does not import archetypes (the archetype is threaded through complete() as a kwarg). world.py imports archetypes (legitimate -- Floor.archetype assignment). render.py reads floor.archetype and uses palette_to_ansi without making any new network/LLM calls. TileKind enum unchanged (5 members: WALL/FLOOR/DOOR/UPSTAIRS/DOWNSTAIRS). EVENT_TYPES unchanged from Sprint 10 (no new event types added in Sprint 11)."
+    }
+  ],
+  "regression": {
+    "sprintsChecked": [1, 2, 7, 8, 10],
+    "criteriaChecked": 120,
+    "pass": 120,
+    "fail": 0,
+    "failures": []
+  },
+  "passCount": 17,
+  "failCount": 0,
+  "blockingFailures": 0,
+  "summary": "Sprint 11 PASS (17/17 criteria, 120/120 prior-sprint regression tests, 174/174 total pytest). Themed archetypes & palettes shipped cleanly: 5 archetypes registered (crypt/flooded_sewer/mushroom_forest/bone_library/whisperhall) with deterministic SHA-256-based assignment, glyph variants honored by render_frame, palettes structured and parseable, ANSI emission opt-in via colorize_frame, prose pool gains 6 archetype-tagged entries per archetype for room_entered + first_sight (>=4 required), Whisper records carry the archetype id of the source floor, --archetype + --list-archetypes CLI flags work, layering invariants preserved (archetypes.py imports only stdlib/typing/.tiles), TileKind + EVENT_TYPES unchanged. Three legacy tests were updated to pin forced_archetype='crypt' to keep their hard-coded default-glyph assertions valid; this is consistent with the contract's allowance for default glyphs to appear 'when the seed-derived archetype does not override them'. Determinism contracts (Sprint 2/7/8/10) byte-identical across processes for same seed."
+}
