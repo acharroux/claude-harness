@@ -34,3 +34,10 @@ Sprint 1 was supposed to provide.
 Commits:
 - `harness(sprint-02): scaffold + dungeon generator core [C1 C2 C3 C4 C5 C6 C7]`
 - `harness(sprint-02): game/movement tests, world docs, glyph legend [C8…C22]`
+
+## Sprint 05: Sprint 5
+
+- **Status**: FAILED (all attempts exhausted)
+- **Attempt**: 3
+- **Time**: 2026-06-12T16:30:33Z
+
