@@ -55,3 +55,32 @@ Commits:
 - **Attempt**: 1
 - **Time**: 2026-06-12T18:45:19Z
 
+
+## Sprint 10 — Chronicle Generator (2026-06-12)
+
+Implemented F9: end-of-run Markdown chronicle.
+
+**Delivered**:
+- `whisperdeep/chronicle.py`: `build_chronicle(game, *, name, fixed_timestamp)`,
+  `write_chronicle(game, path, ...)`, `default_chronicle_path(game, name)`,
+  `slugify_name(name)`. Module imports stdlib + typing only (layering preserved).
+- New canonical `epitaph` event type added additively to `EventType` /
+  `EVENT_TYPES`. Original ten event names preserved.
+- `prose_pool.json` gains 10 distinct `epitaph` entries.
+- `Game.end_run(cause='quit')` publishes `run_ended` + `epitaph`,
+  idempotent, safe no-op with `whisperer=False`. Tracks `seed`,
+  `_adapter_name`, `max_floor_reached` for the chronicle's metadata block.
+- CLI flags `--name`, `--chronicle PATH`, `--chronicle-fixed-timestamp ISO`,
+  `--no-chronicle`. All listed in `--help`.
+- 34 new tests in `tests/test_sprint10.py`; 120/120 pytest green.
+- `docs/whisperdeep.md` gains a Sprint-10 status banner and a full
+  Chronicles section (format, epitaph event, lifecycle hook, CLI flags,
+  default path, determinism, deferred cross-run legends).
+
+Commits:
+- `harness(contract): sprint-10 agreed`
+- `harness(sprint-10): epitaph event, prose pool, end_run, chronicle module, CLI flags [C1 C3 C4 C8]`
+- `harness(sprint-10): tests + docs for chronicle, epitaph, end_run hook [C2 C5 C6 C7 C9 C10 C11 C12 C13 C14 C15 C16 C17 C18]`
+- `harness(eval): sprint-10 result PASS (18/18, regressions 4/4)`
+
+**Eval result**: PASS — 18/18 criteria, 4/4 regression sprints (1, 2, 7, 8), 120/120 pytest.

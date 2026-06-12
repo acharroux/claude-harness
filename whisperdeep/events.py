@@ -48,6 +48,9 @@ class EventType(str, Enum):
     # Sprint 8 additions (additive only):
     FIRST_SIGHT = "first_sight"
     ROOM_ENTERED = "room_entered"
+    # Sprint 10 addition (additive only): the final whispered line that
+    # the Chronicle quotes as the run's epitaph.
+    EPITAPH = "epitaph"
 
 
 # Tuple form so it's iterable, hashable, and trivially serializable.

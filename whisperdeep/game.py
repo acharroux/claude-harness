@@ -71,6 +71,14 @@ class Game:
         # the Game layer. The Whisperer also dedupes; either layer alone
         # suffices, but keeping both honest is cheap.
         self._kinds_observed: Set[str] = set()
+        # Sprint 10: lifecycle bookkeeping.
+        self._run_ended: bool = False
+        # Track the deepest floor index visited; used by the chronicle to
+        # report 'floors_reached'.
+        self.max_floor_reached: int = 0
+        # Track the seed (forwarded by from_seed) so chronicles can include
+        # it without rummaging through the World.
+        self.seed: Optional[int] = None
 
     # ---- factories -------------------------------------------------------
     @classmethod
@@ -84,6 +92,7 @@ class Game:
         whisperer: bool = True,
         adapter: str = "offline",
         budget: Optional[int] = None,
+        model: Optional[str] = None,
     ) -> "Game":
         """Construct a Game directly from a master seed.
 
@@ -95,13 +104,16 @@ class Game:
         """
         world = World(master_seed=seed, num_floors=num_floors, width=width, height=height)
         if not whisperer:
-            return cls(world)
+            game = cls(world)
+            game.seed = seed
+            game._adapter_name = "none"
+            return game
         # Lazy imports keep Game's module-level imports adapter-free.
         from .adapter_factory import make_adapter
         from .whisperer import DEFAULT_BUDGET, Whisperer
 
         bus = EventBus()
-        llm = make_adapter(adapter, seed=seed)
+        llm = make_adapter(adapter, seed=seed, model=model)
         wh = Whisperer(
             adapter=llm,
             bus=bus,
@@ -109,6 +121,11 @@ class Game:
             budget=budget if budget is not None else DEFAULT_BUDGET,
         )
         game = cls(world, events=bus, whisperer=wh)
+        # Sprint 10: stash the seed and adapter name on the Game so
+        # downstream consumers (e.g., the Chronicle generator) can read
+        # them without poking at the World/adapter internals.
+        game.seed = seed
+        game._adapter_name = adapter
         # Publish the run_started event AFTER subscribing.
         bus.publish(
             Event(
@@ -174,6 +191,8 @@ class Game:
             return False
         from_floor = self.current_floor_index
         self.current_floor_index += 1
+        if self.current_floor_index > self.max_floor_reached:
+            self.max_floor_reached = self.current_floor_index
         new_floor = self.floor
         target = new_floor.upstairs_pos
         if target is None:
@@ -290,6 +309,57 @@ class Game:
                 type=EventType.FIRST_SIGHT.value,
                 payload={"kind": kind, "category": category},
                 turn=self.turns,
+                floor=self.current_floor_index,
+            )
+        )
+        return True
+
+    # ---- Sprint 10: run lifecycle hook ----------------------------------
+    def end_run(self, cause: str = "quit", summary: Optional[dict] = None) -> bool:
+        """Publish the canonical run_ended + epitaph events for this run.
+
+        Idempotent: a second call returns False without publishing.
+
+        When the Whisperer is disabled (``self.events is None``), this is a
+        documented safe no-op that returns False without raising.
+
+        Returns True if events were actually published; False otherwise.
+        """
+        if self._run_ended:
+            return False
+        if self.events is None:
+            # No bus -> no events. Mark ended so subsequent calls are
+            # also a clean no-op.
+            self._run_ended = True
+            return False
+        self._run_ended = True
+        # Bump the turn for end-of-run events so they don't get coalesced
+        # with run_started / room_entered whispers that fired at turn 0
+        # (the Sprint-7 per-turn cap is keyed on the turn integer).
+        end_turn = max(self.turns, 0) + 1
+        payload = {
+            "cause": cause,
+            "floors_reached": self.max_floor_reached + 1,
+            "turns": self.turns,
+        }
+        if isinstance(summary, dict):
+            payload["summary"] = summary
+        self.events.publish(
+            Event(
+                type=EventType.RUN_ENDED.value,
+                payload=payload,
+                turn=end_turn,
+                floor=self.current_floor_index,
+            )
+        )
+        # Bump the turn again so the epitaph is not coalesced with
+        # run_ended either.
+        epitaph_turn = end_turn + 1
+        self.events.publish(
+            Event(
+                type=EventType.EPITAPH.value,
+                payload={"cause": cause},
+                turn=epitaph_turn,
                 floor=self.current_floor_index,
             )
         )
