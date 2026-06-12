@@ -1,9 +1,9 @@
 {
   "projectName": "whisperdeep",
-  "completedSprints": [1, 2],
-  "currentSprint": 2,
+  "completedSprints": [1, 2, 7, 8, 10],
+  "currentSprint": 10,
   "totalSprints": 12,
-  "completedFeatures": ["F1", "F2"],
+  "completedFeatures": ["F1", "F2", "F7", "F9"],
   "keyFiles": {
     "package": "whisperdeep/",
     "cliEntrypoint": "whisperdeep/__main__.py",
@@ -13,9 +13,16 @@
     "tiles": "whisperdeep/tiles.py",
     "game": "whisperdeep/game.py",
     "render": "whisperdeep/render.py",
+    "panel": "whisperdeep/panel.py",
+    "events": "whisperdeep/events.py",
+    "llm": "whisperdeep/llm.py",
+    "whisperer": "whisperdeep/whisperer.py",
+    "adapterFactory": "whisperdeep/adapter_factory.py",
+    "prosePool": "whisperdeep/prose_pool.json",
+    "chronicle": "whisperdeep/chronicle.py",
     "entity": "whisperdeep/entity.py",
     "cli": "whisperdeep/cli.py",
-    "tests": "tests/test_generator.py, tests/test_game.py",
+    "tests": "tests/test_generator.py, tests/test_game.py, tests/test_sprint01.py, tests/test_sprint07.py, tests/test_sprint08.py, tests/test_sprint10.py",
     "docs": "docs/whisperdeep.md"
   },
   "techStack": {
@@ -29,15 +36,19 @@
   "devServerCommand": "python -m whisperdeep --seed 1",
   "devServerPort": 0,
   "git": {
-    "harnessBranch": "harness/game-sprint-02",
+    "harnessBranch": "harness/game-sprint-02-sprint-10",
     "latestTag": "",
     "latestMergeSha": "",
     "prNumbers": []
   },
   "notes": [
-    "Sprint 1 was not implemented in a previous turn; Sprint 2 bootstrapped the full project scaffold (entity/tile/grid model, render loop, basic player movement) AND delivered the rooms-and-corridors generator, doors, stairs, and multi-floor descent.",
-    "Run interactively: `python -m whisperdeep --seed 1`. Run headless (CI/snapshot): `python -m whisperdeep --seed 1 --headless`.",
-    "Glyphs: '#' wall, '.' floor, '+' door, '<' upstairs, '>' downstairs, '@' player.",
-    "All 21 pytest tests pass."
+    "Sprint 10 added the Chronicle generator: end-of-run Markdown summary with title, metadata, notable-events list, and epitaph blockquote.",
+    "New canonical event type 'epitaph' (additive); prose pool gains >= 8 epitaph entries.",
+    "Game.end_run(cause='quit') publishes run_ended + epitaph; idempotent; safe no-op when whisperer=False.",
+    "CLI flags: --name, --chronicle PATH, --chronicle-fixed-timestamp ISO, --no-chronicle.",
+    "Default chronicle path is chronicles/seed-<N>-<slug>-floor-<F>.md.",
+    "Cross-run 'death legends' (Whisperer reading prior chronicles) explicitly deferred.",
+    "120 pytest tests pass (34 new sprint-10 tests).",
+    "Sprints 3, 4, 5, 6, 9 not yet implemented in tree."
   ]
 }
