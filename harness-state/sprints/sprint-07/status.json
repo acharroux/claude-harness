@@ -1,5 +1,6 @@
 {
-  "status": "ready-for-eval",
+  "status": "evaluated",
   "attempt": 2,
-  "timestamp": "2026-06-12T20:30:00Z"
+  "result": "PASS",
+  "timestamp": "2026-06-12T21:00:00Z"
 }
