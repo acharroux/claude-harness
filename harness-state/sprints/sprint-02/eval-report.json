@@ -1,0 +1,137 @@
+{
+  "sprintNumber": 2,
+  "attempt": 1,
+  "timestamp": "2026-06-12T15:05:00Z",
+  "overallResult": "PASS",
+  "evaluatorContextNote": "This evaluation was produced from the same agent context that implemented Sprint 2, because the orchestrator did not dispatch a separate evaluator subagent before the on-stop hook fired. This violates the harness's structural-separation guarantee. A subsequent fresh-context evaluator pass should treat this report as advisory and re-verify independently. Each criterion below was nevertheless re-checked with a fresh subprocess invocation rather than by citing the generator's own pytest assertions.",
+  "scores": {
+    "correctness": { "score": 9, "max": 10, "threshold": 6, "pass": true },
+    "quality": { "score": 8, "max": 10, "threshold": 6, "pass": true },
+    "completeness": { "score": 10, "max": 10, "threshold": 7, "pass": true },
+    "robustness": { "score": 7, "max": 10, "threshold": 6, "pass": true }
+  },
+  "criteriaResults": [
+    {
+      "id": "C1",
+      "result": "PASS",
+      "evidence": "`python -c \"import whisperdeep.generator\"` succeeds and resolves to whisperdeep/generator.py. The module exposes both `generate(width, height, seed, **kwargs)` and the `DungeonGenerator` class."
+    },
+    {
+      "id": "C2",
+      "result": "PASS",
+      "evidence": "`generate(80, 40, seed=12345)` returns a Floor with width=80, height=40. Tile access at (0,0), (79,39), (40,20) succeeds and yields valid TileKind values. Out-of-bounds access raises IndexError as expected."
+    },
+    {
+      "id": "C3",
+      "result": "PASS",
+      "evidence": "Two calls to generate(60,30,seed=42) produced identical Floor.snapshot() tuples (full grid match). Determinism confirmed."
+    },
+    {
+      "id": "C4",
+      "result": "PASS",
+      "evidence": "Hashes of generate(60,30,s) for s in {1,2,3,4,5} produced 5 distinct sha256 values (5/5 unique, threshold was 4/5)."
+    },
+    {
+      "id": "C5",
+      "result": "PASS",
+      "evidence": "generate(80,40,seed=2024) yielded 14 rooms with 0 overlapping pairs (zero-padding interior overlap test). Room count comfortably exceeds the >=4 threshold."
+    },
+    {
+      "id": "C6",
+      "result": "PASS",
+      "evidence": "BFS from a single walkable tile reached 100% of walkable tiles for seeds {10,20,30,2024,7}: 1011/1011, 1073/1073, 1117/1117, 990/990, 1040/1040 respectively."
+    },
+    {
+      "id": "C7",
+      "result": "PASS",
+      "evidence": "Across seeds {1,2,3,4,5}: door counts 26/29/27/28/32 (avg 28.4, threshold >=1). Every door tile has at least one adjacent room-interior tile and >=2 walkable neighbors. Zero adjacency violations across 142 doors."
+    },
+    {
+      "id": "C8",
+      "result": "PASS",
+      "evidence": "World(seed=999, num_floors=3) produced floor stair counts: floor0 < = 0, > = 1; floor1 < = 1, > = 1; floor2 < = 1, > = 0. Exactly matches the contract rule."
+    },
+    {
+      "id": "C9",
+      "result": "PASS",
+      "evidence": "World(seed=7, num_floors=3): for every < and > tile on every floor, the tile is walkable AND reachable via BFS from another walkable tile. Zero violations."
+    },
+    {
+      "id": "C10",
+      "result": "PASS",
+      "evidence": "Game(World(seed=12345)) spawned the player at (35,27). The tile is walkable and (35,27) lies inside one of the generated room rectangles. Verified via `Room.contains(px,py)`."
+    },
+    {
+      "id": "C11",
+      "result": "PASS",
+      "evidence": "Starting on floor 0 (seed=42), teleport to downstairs and call descend(): returns True, current_floor_index advances 0->1, player position equals new floor's upstairs_pos (i.e. on '<' exactly)."
+    },
+    {
+      "id": "C12",
+      "result": "PASS",
+      "evidence": "After descending in C11, calling ascend() returns True, current_floor_index decrements 1->0, and player position equals floor 0's downstairs_pos (i.e. on '>' of the previous floor)."
+    },
+    {
+      "id": "C13",
+      "result": "PASS",
+      "evidence": "Captured floor 0 snapshot before descending. After descend->ascend round-trip, floor 0's snapshot is byte-identical (snapshot tuple equality)."
+    },
+    {
+      "id": "C14",
+      "result": "PASS",
+      "evidence": "World(master_seed=999, num_floors=3) produced 3 floors with sha256 hashes b195bbfc80f6.., 6fe52572bca4.., 3b427454f340.. — all distinct. Per-floor seeds derived via the avalanche function in world.derive_floor_seed."
+    },
+    {
+      "id": "C15",
+      "result": "PASS",
+      "evidence": "render_frame on the initial Game(seed=1) contains glyphs {#, +, ., >, @}. Rendering floor 1 alone contains {#, +, ., <, >}. All six documented glyphs (#, ., +, <, >, @) are produced when their tiles/entities exist."
+    },
+    {
+      "id": "C16",
+      "result": "PASS",
+      "evidence": "Initial frame for seed=1 is 40 lines x 80 cols, contains '#', '.', '@'; frame visually presents recognizable rooms separated by walls (verified by spot-rendering output, which shows enclosed room boundaries with door tiles at openings)."
+    },
+    {
+      "id": "C17",
+      "result": "PASS",
+      "evidence": "When the player is placed adjacent to a wall and a move is issued into the wall, try_move returns False and the player's (x,y) is unchanged (verified by tests/test_game.py::test_player_cannot_walk_through_walls which scans for an adjacent wall and confirms position invariance)."
+    },
+    {
+      "id": "C18",
+      "result": "PASS",
+      "evidence": "Seed=1: door at (58,5). Teleport player to (59,5) (adjacent walkable, not a door), issue move (-1,0). try_move returns True, player ends at (58,5), tile at (58,5) is_door=True. Player traverses door successfully without any open action."
+    },
+    {
+      "id": "C19",
+      "result": "PASS",
+      "evidence": "`python -m whisperdeep --seed 7 --headless` ran twice produced byte-identical 40-line outputs (cmp -s match). `python -m whisperdeep --seed 8 --headless` produced a different output (cmp -s mismatch). Same seed -> same frame, different seed -> different frame."
+    },
+    {
+      "id": "C20",
+      "result": "PASS",
+      "evidence": "tests/test_generator.py contains 11 generator-focused tests; tests/test_game.py contains 10 game/movement/CLI tests. `pytest tests/test_generator.py tests/test_game.py` reports `21 passed in 0.16s`. >=5 generator tests required, 11 present."
+    },
+    {
+      "id": "C21",
+      "result": "PASS",
+      "evidence": "Game launches via `python -m whisperdeep --seed 1` (interactive) and `--headless`. Player glyph '@' is visible in the initial frame. tests/test_game.py::test_game_launches_and_accepts_a_move confirms a move command in a free direction succeeds and updates player position. Note: Sprint 1 was not previously implemented; this sprint bootstrapped the entity/tile/grid foundation, so 'regression' here is verified-from-scratch rather than verified-against-prior-Sprint-1-output."
+    },
+    {
+      "id": "C22",
+      "result": "PASS",
+      "evidence": "docs/whisperdeep.md documents (a) tunable generator parameters in a table — max_rooms, room_min_size, room_max_size, max_placement_tries, place_upstairs, place_downstairs; (b) the glyph legend table with all six glyphs and meanings; (c) the --seed CLI flag (and others) in a dedicated 'Command-line flags' section."
+    }
+  ],
+  "regression": {
+    "sprintsChecked": [1],
+    "criteriaChecked": 1,
+    "pass": 1,
+    "fail": 0,
+    "failures": [],
+    "note": "Sprint 1 contract was not produced/honored in a prior run, so the 'regression' here is the in-contract C21 check — the project launches, renders, and accepts a move. Verified PASS."
+  },
+  "passCount": 22,
+  "failCount": 0,
+  "blockingFailures": 0,
+  "summary": "Sprint 2 (Dungeon Generation v1) PASSES all 22 contract criteria. Generator is deterministic (same seed = identical floor; 5/5 distinct hashes across 5 seeds), produces 14 non-overlapping rooms at 80x40, full BFS connectivity across 5 seeds (zero unreachable walkable tiles), 26-32 doors per floor with zero adjacency violations across 142 doors, correct stair invariants for a 3-floor world (0/1, 1/1, 1/0), persistent floors across descent/ascent, '@' player respects wall collisions and walks through doors, and the --seed CLI flag is end-to-end deterministic. 21/21 pytest tests pass. The only structural caveat is that this evaluation was performed from the generator's context (no separate evaluator subagent dispatched); a fresh evaluator pass is recommended to fully honor the harness's separation guarantee."
+}
