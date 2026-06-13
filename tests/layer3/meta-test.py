@@ -60,11 +60,25 @@ def main() -> int:
     dest = TMP_BASE / f"meta-{int(time.time())}" / "claude-harness"
     # dest must NOT be pre-created — shutil.copytree creates it
 
-    shutil.copytree(str(PROJECT_DIR), str(dest),
-                    ignore=shutil.ignore_patterns(
-                        ".git", "__pycache__", "*.pyc",
-                        "harness-state", ".claude/worktrees", "tests/tmp"
-                    ))
+    # Build an ignore function that excludes both name-patterns and the
+    # tests/tmp directory (which is inside PROJECT_DIR and would cause
+    # infinite recursion if copied into itself).
+    _pattern_ignore = shutil.ignore_patterns(
+        ".git", "__pycache__", "*.pyc", "harness-state"
+    )
+    _tmp_abs = str(TMP_BASE.resolve())
+
+    def _ignore(src, names):
+        ignored = set(_pattern_ignore(src, names))
+        # Exclude tests/tmp itself when we're inside the tests/ directory
+        src_resolved = str(Path(src).resolve())
+        for name in names:
+            child = str(Path(src_resolved) / name)
+            if child.startswith(_tmp_abs):
+                ignored.add(name)
+        return ignored
+
+    shutil.copytree(str(PROJECT_DIR), str(dest), ignore=_ignore)
 
     def _run(*args):
         return subprocess.run(list(args), cwd=str(dest),
