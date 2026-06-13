@@ -124,7 +124,9 @@ function Read-JsonField {
         $value = & jq -r $Field $File 2>$null
         if ($LASTEXITCODE -ne 0) { return '' }
         if ($null -eq $value) { return '' }
-        return $value
+        # jq -r on a string with embedded newlines returns an array in PS; flatten to one string
+        if ($value -is [array]) { return ($value -join ' ').Trim() }
+        return [string]$value
     } catch {
         return ''
     }
