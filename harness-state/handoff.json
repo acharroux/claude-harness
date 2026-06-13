@@ -1,0 +1,18 @@
+{
+  "projectName": "harness-python-rewrite",
+  "completedSprints": [],
+  "currentSprint": 1,
+  "totalSprints": 0,
+  "completedFeatures": [],
+  "keyFiles": {},
+  "techStack": {},
+  "outstandingIssues": [],
+  "devServerCommand": "",
+  "devServerPort": 0,
+  "git": {
+    "harnessBranch": "harness/rewrite-in-python",
+    "latestTag": "",
+    "latestMergeSha": "",
+    "prNumbers": []
+  }
+}

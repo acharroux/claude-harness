@@ -1,0 +1,10 @@
+{
+  "userPrompt": "Rewrite the harness orchestration scripts in Python for cross-platform support (Linux, macOS, Windows). The existing bash scripts (harness/orchestrate.sh and harness/lib/*.sh) are the reference implementation. Create harness/orchestrate.py and harness/lib/*.py equivalents. The Python scripts must be functionally equivalent to the bash scripts, cross-platform (Windows/macOS/Linux), include a Python-based test system equivalent to the bats tests in tests/layer1/, and allow skills to call the new Python orchestration script. NEVER modify existing .sh or .ps1 scripts. NEVER modify skills except minimally to redirect to Python.",
+  "projectType": "cli-tool",
+  "contextStrategy": "reset",
+  "model": "opus",
+  "maxSprintAttempts": 3,
+  "maxContractRounds": 3,
+  "costCapPerSprint": 25.00,
+  "totalCostCap": 200.00
+}
