@@ -5,8 +5,9 @@
 .claude/worktrees/
 .claude/settings.local.json
 
-# Harness runtime state (generated per-project, not repo content)
-harness-state/
+# Test artifacts (layer2/layer3 smoke and meta test runs)
+tests/tmp/smoke-*/
+tests/tmp/meta-*/
 
 # Node
 node_modules/

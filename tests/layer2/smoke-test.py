@@ -3,6 +3,8 @@
 Builds a trivial project to verify end-to-end harness functionality.
 
 Guard: Set HARNESS_SMOKE_TEST=1 to run (costs Claude usage ~$10-20)
+
+Test artifacts are written to tests/tmp/smoke-<timestamp>/ (never %TMP%).
 """
 
 from __future__ import annotations
@@ -12,11 +14,11 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 from pathlib import Path
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent.parent
+TMP_BASE = PROJECT_DIR / "tests" / "tmp"
 
 
 def _assert(results: list, desc: str, ok: bool) -> None:
@@ -31,13 +33,15 @@ def main() -> int:
         print("This costs Claude usage (~$10-20).")
         return 0
 
-    smoke_dir = Path(tempfile.mkdtemp(prefix="harness-smoke-"))
-    print(f"=== Smoke Test: Build a Hello World CLI ===")
+    TMP_BASE.mkdir(parents=True, exist_ok=True)
+    smoke_dir = TMP_BASE / f"smoke-{int(time.time())}"
+    smoke_dir.mkdir()
+
+    print("=== Smoke Test: Build a Hello World CLI ===")
     print(f"Working directory: {smoke_dir}")
     print()
 
-    # Set up isolated git repo
-    def _run(*args, **kwargs):
+    def _run(*args):
         return subprocess.run(list(args), cwd=str(smoke_dir),
                               check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
@@ -48,7 +52,6 @@ def main() -> int:
     _run("git", "add", "README.md")
     _run("git", "commit", "-q", "-m", "initial")
 
-    # Copy harness into isolated dir
     shutil.copytree(str(PROJECT_DIR / "harness"), str(smoke_dir / "harness"))
     shutil.copytree(str(PROJECT_DIR / ".claude"), str(smoke_dir / ".claude"),
                     dirs_exist_ok=True)
@@ -57,7 +60,6 @@ def main() -> int:
         if src.exists():
             shutil.copy(str(src), str(smoke_dir / name))
 
-    # Run the Python orchestrator
     print("Starting harness (this may take 10-30 minutes)...")
     log_path = smoke_dir / "smoke-output.log"
     start = time.time()
@@ -85,7 +87,6 @@ def main() -> int:
     elapsed = int(time.time() - start)
     print(f"\nElapsed: {elapsed // 60}m {elapsed % 60}s")
 
-    # Assertions
     print("\n=== Assertions ===")
     results: list = []
     hs = smoke_dir / "harness-state"
@@ -105,16 +106,12 @@ def main() -> int:
     eval_reports = list((hs / "sprints").glob("*/eval-report.json")) if (hs / "sprints").is_dir() else []
     _assert(results, "At least one eval report exists", len(eval_reports) > 0)
 
-    any_pass = False
-    for r in eval_reports:
-        try:
-            d = json.loads(r.read_text(encoding="utf-8"))
-            result = (d.get("overallResult") or d.get("result") or "").upper()
-            if result == "PASS":
-                any_pass = True
-                break
-        except Exception:
-            pass
+    any_pass = any(
+        (json.loads(r.read_text(encoding="utf-8")).get("overallResult") or
+         json.loads(r.read_text(encoding="utf-8")).get("result") or "").upper() == "PASS"
+        for r in eval_reports
+        if r.is_file()
+    )
     _assert(results, "At least one sprint PASS in eval reports", any_pass)
 
     tags = subprocess.run(["git", "tag"], cwd=str(smoke_dir),
@@ -145,13 +142,9 @@ def main() -> int:
     passed = sum(1 for _, ok in results if ok)
     failed = sum(1 for _, ok in results if not ok)
     print(f"\n=== Results: {passed} passed, {failed} failed ===")
+    print(f"Artifacts kept at: {smoke_dir}")
 
-    if failed > 0:
-        print(f"Smoke test output saved to: {log_path}")
-        return 1
-
-    print(f"Smoke test dir: {smoke_dir} (not cleaned for inspection)")
-    return 0
+    return 1 if failed > 0 else 0
 
 
 if __name__ == "__main__":

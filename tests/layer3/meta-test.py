@@ -2,14 +2,9 @@
 """Layer 3: The Meta Test.
 Uses the harness to build its own test suite.
 
-Prerequisites: Layer 1 must pass first.
 Guard: Set HARNESS_META_TEST=1 to run (costs Claude usage ~$50-100)
 
-Why this is not circular:
-Layer 1 (human-written, mock-tested) is the ground truth.
-The meta test demonstrates the harness can analyze a complex project,
-decompose it into sprints, produce tests, and have them pass evaluation.
-The two test suites are complementary, not redundant.
+Test artifacts are written to tests/tmp/meta-<timestamp>/ (never %TMP%).
 """
 
 from __future__ import annotations
@@ -19,30 +14,29 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 import unittest
 from pathlib import Path
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent.parent
+TMP_BASE = PROJECT_DIR / "tests" / "tmp"
 
 
 def _run_layer1() -> bool:
-    """Run layer1 Python tests. Returns True if all pass."""
+    if str(PROJECT_DIR) not in sys.path:
+        sys.path.insert(0, str(PROJECT_DIR))
     loader = unittest.TestLoader()
     suite = loader.discover(
         start_dir=str(PROJECT_DIR / "tests" / "layer1"),
         pattern="test_*.py",
         top_level_dir=str(PROJECT_DIR),
     )
-    runner = unittest.TextTestRunner(verbosity=1, stream=sys.stderr)
-    result = runner.run(suite)
+    result = unittest.TextTestRunner(verbosity=1, stream=sys.stderr).run(suite)
     return result.wasSuccessful()
 
 
 def _check(results: list, desc: str, ok: bool) -> None:
-    status = "PASS" if ok else "FAIL"
-    print(f"  {status}: {desc}")
+    print(f"  {'PASS' if ok else 'FAIL'}: {desc}")
     results.append((desc, ok))
 
 
@@ -52,13 +46,9 @@ def main() -> int:
         print("This costs significant Claude usage (~$50-100).")
         return 0
 
-    # Prerequisite: layer1 must pass
     print("=== Verifying Layer 1 (prerequisite) ===")
-    if str(PROJECT_DIR) not in sys.path:
-        sys.path.insert(0, str(PROJECT_DIR))
     if not _run_layer1():
         print("\nLayer 1 must pass before running the meta test.")
-        print("Fix Layer 1 failures first.")
         return 1
 
     print()
@@ -66,16 +56,17 @@ def main() -> int:
     print("The harness will now build its own test suite.")
     print()
 
-    meta_dir = Path(tempfile.mkdtemp(prefix="harness-meta-"))
-    dest = meta_dir / "claude-harness"
+    TMP_BASE.mkdir(parents=True, exist_ok=True)
+    dest = TMP_BASE / f"meta-{int(time.time())}" / "claude-harness"
+    dest.mkdir(parents=True)
 
-    # Copy project to isolated directory
     shutil.copytree(str(PROJECT_DIR), str(dest),
-                    ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc",
-                                                  "harness-state", ".claude/worktrees"))
+                    ignore=shutil.ignore_patterns(
+                        ".git", "__pycache__", "*.pyc",
+                        "harness-state", ".claude/worktrees", "tests/tmp"
+                    ))
 
-    # Ensure git is ready in the copy
-    def _run(*args, **kwargs):
+    def _run(*args):
         return subprocess.run(list(args), cwd=str(dest),
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
@@ -88,7 +79,6 @@ def main() -> int:
     log_path = dest / "meta-output.log"
     start = time.time()
 
-    # Run the harness to build its own test suite (Python-based)
     with open(str(log_path), "w", encoding="utf-8") as log_fh:
         proc = subprocess.run(
             [
@@ -100,8 +90,7 @@ def main() -> int:
                     "(1) Unit tests for all pure functions in harness/lib/utils.py "
                     "(slugify, sprint_pad, sprint_dir, json_read, file_exists, "
                     "init_harness_state, update_handoff, update_regression_registry), "
-                    "(2) Git operation tests for harness/lib/git.py functions using "
-                    "isolated temp repos, "
+                    "(2) Git operation tests for harness/lib/git.py using isolated temp repos, "
                     "(3) Hook validation tests for harness/hooks/on-generator-stop.py, "
                     "on-evaluator-stop.py, and on-stop.py using fixture files. "
                     "Put all tests in a meta-tests/ directory. Include a "
@@ -129,33 +118,24 @@ def main() -> int:
     results: list = []
     hs = dest / "harness-state"
 
-    # Check harness completed sprints
     eval_reports = list((hs / "sprints").glob("*/eval-report.json")) if (hs / "sprints").is_dir() else []
     _check(results, "Harness completed sprint cycle", len(eval_reports) > 0)
 
-    any_pass = False
-    for r in eval_reports:
-        try:
-            d = json.loads(r.read_text(encoding="utf-8"))
-            result = (d.get("overallResult") or d.get("result") or "").upper()
-            if result == "PASS":
-                any_pass = True
-                break
-        except Exception:
-            pass
+    any_pass = any(
+        (json.loads(r.read_text(encoding="utf-8")).get("overallResult") or
+         json.loads(r.read_text(encoding="utf-8")).get("result") or "").upper() == "PASS"
+        for r in eval_reports if r.is_file()
+    )
     _check(results, "At least one sprint passed evaluation", any_pass)
 
-    # Check test files were created
     meta_tests_dir = dest / "meta-tests"
-    if meta_tests_dir.is_dir():
-        test_files = (list(meta_tests_dir.glob("test_*.py")) +
-                      list(meta_tests_dir.glob("*.bats")))
-    else:
-        test_files = []
+    test_files = (
+        list(meta_tests_dir.glob("test_*.py")) + list(meta_tests_dir.glob("*.bats"))
+        if meta_tests_dir.is_dir() else []
+    )
     _check(results, "Test files were created", len(test_files) > 0)
     print(f"  INFO: {len(test_files)} test files generated")
 
-    # Try to run the generated tests
     run_py = dest / "meta-tests" / "run.py"
     if run_py.is_file():
         print()
@@ -171,24 +151,17 @@ def main() -> int:
             print("  WARN: Some generated tests failed (informative, not blocking)")
             _check(results, "Generated tests exist and are runnable", True)
     elif test_files:
-        print("  INFO: No run.py entry point, but test files exist")
         _check(results, "Test files were generated", True)
 
     passed = sum(1 for _, ok in results if ok)
     failed = sum(1 for _, ok in results if not ok)
     print()
     print(f"=== META-TEST RESULTS: {passed} passed, {failed} failed ===")
-    print()
 
     if passed >= 2:
-        print("The harness successfully:")
-        print("  - Analyzed its own codebase")
-        print("  - Planned a test suite via sprint decomposition")
-        print("  - Implemented tests via the generator")
-        print("  - Evaluated them via the evaluator")
         print()
-        print("This is not circular proof -- it is empirical evidence that the harness")
-        print("can produce useful output on a complex, real-world project.")
+        print("The harness successfully analyzed its own codebase, planned a test")
+        print("suite, implemented it, and had it pass evaluation.")
 
     print()
     print(f"Meta test output: {log_path}")
