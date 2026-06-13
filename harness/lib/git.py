@@ -48,17 +48,26 @@ def _run(
     """Run a subprocess and return the CompletedProcess.
 
     By default captures stdout/stderr and raises CalledProcessError on non-zero
-    exit. Pass check=False to suppress the raise. We always return text output.
+    exit. When check=True and the process fails, stderr is logged before raising
+    so the error is visible in harness output.
     """
-    return subprocess.run(
+    result = subprocess.run(
         args,
-        check=check,
+        check=False,
         stdout=subprocess.PIPE if capture else None,
         stderr=subprocess.PIPE if capture else None,
         text=text,
         encoding="utf-8" if text else None,
         errors="replace" if text else None,
     )
+    if check and result.returncode != 0:
+        stderr = (result.stderr or "").strip()
+        if stderr:
+            import sys
+            print(f"[git error] {' '.join(args)}\n{stderr}", file=sys.stderr)
+        raise subprocess.CalledProcessError(result.returncode, args,
+                                            result.stdout, result.stderr)
+    return result
 
 
 def _git_ok(*args: str) -> bool:
@@ -160,18 +169,25 @@ def merge_sprint(harness_branch: str, sprint_num, attempt) -> str:
 
     log_info(f"Merging sprint {sprint_pad_str} to {harness_branch}")
 
+    # Commit any evaluator artifacts left on the sprint branch
     _run(["git", "add", "-A"], check=False, capture=True)
     if not _git_ok("diff", "--cached", "--quiet"):
         _run(
-            [
-                "git", "commit", "-q",
-                "-m", f"harness(sprint-{sprint_pad_str}): evaluator artifacts",
-            ],
-            check=False,
-            capture=True,
+            ["git", "commit", "-q",
+             "-m", f"harness(sprint-{sprint_pad_str}): evaluator artifacts"],
+            check=False, capture=True,
         )
 
     _run(["git", "checkout", harness_branch], check=True, capture=True)
+
+    # Clean any leftover untracked or modified files so the merge is clean
+    _run(["git", "add", "-A"], check=False, capture=True)
+    if not _git_ok("diff", "--cached", "--quiet"):
+        _run(
+            ["git", "commit", "-q",
+             "-m", f"harness(sprint-{sprint_pad_str}): harness branch cleanup before merge"],
+            check=False, capture=True,
+        )
 
     merge_msg = f"harness(sprint-{sprint_pad_str}): merge (PASS, attempt {attempt})"
     _run(

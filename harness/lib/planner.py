@@ -100,6 +100,4 @@ def invoke_planner(mode: str = "new") -> int:
             log_warn("Planner did not produce design-spec.md for web-frontend project")
 
     log_success(f"Planner produced spec with {sprint_count} sprints")
-    # Match bash: emit count to stdout (so callers reading stdout see it)
-    print(sprint_count)
     return sprint_count
