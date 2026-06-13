@@ -64,10 +64,29 @@ def main() -> int:
     log_path = smoke_dir / "smoke-output.log"
     start = time.time()
 
+    # Create an isolated venv inside smoke_dir so any `pip install` done by the
+    # generated project lands here, never in the active system/user environment.
+    venv_dir = smoke_dir / ".venv"
+    subprocess.run([sys.executable, "-m", "venv", str(venv_dir)], check=True,
+                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    venv_bin = venv_dir / ("Scripts" if os.name == "nt" else "bin")
+    venv_python = venv_bin / ("python.exe" if os.name == "nt" else "python")
+
+    # Build env that points to the venv: any subprocess inside the harness that
+    # calls `pip install` or `python` will use the isolated venv.
+    smoke_env = {
+        **os.environ,
+        "HARNESS_ROOT": str(smoke_dir),
+        "VIRTUAL_ENV": str(venv_dir),
+        "PATH": str(venv_bin) + os.pathsep + os.environ.get("PATH", ""),
+    }
+    # Remove PYTHONHOME if set — it would override the venv
+    smoke_env.pop("PYTHONHOME", None)
+
     with open(str(log_path), "w", encoding="utf-8") as log_fh:
         proc = subprocess.run(
             [
-                sys.executable,
+                str(venv_python),
                 str(smoke_dir / "harness" / "orchestrate.py"),
                 "Build a hello world CLI tool in Python that prints 'Hello, NAME' "
                 "when given a name argument and 'Hello, World' with no arguments",
@@ -78,7 +97,7 @@ def main() -> int:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             timeout=1800,
-            env={**os.environ, "HARNESS_ROOT": str(smoke_dir)},
+            env=smoke_env,
         )
         output = proc.stdout.decode(errors="replace")
         log_fh.write(output)

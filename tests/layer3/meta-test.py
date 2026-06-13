@@ -79,10 +79,25 @@ def main() -> int:
     log_path = dest / "meta-output.log"
     start = time.time()
 
+    # Isolated venv so any pip installs stay inside the test directory
+    venv_dir = dest / ".venv"
+    subprocess.run([sys.executable, "-m", "venv", str(venv_dir)], check=True,
+                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    venv_bin = venv_dir / ("Scripts" if os.name == "nt" else "bin")
+    venv_python = venv_bin / ("python.exe" if os.name == "nt" else "python")
+
+    meta_env = {
+        **os.environ,
+        "HARNESS_ROOT": str(dest),
+        "VIRTUAL_ENV": str(venv_dir),
+        "PATH": str(venv_bin) + os.pathsep + os.environ.get("PATH", ""),
+    }
+    meta_env.pop("PYTHONHOME", None)
+
     with open(str(log_path), "w", encoding="utf-8") as log_fh:
         proc = subprocess.run(
             [
-                sys.executable,
+                str(venv_python),
                 str(dest / "harness" / "orchestrate.py"),
                 (
                     "Build a comprehensive Python unittest test suite for this project "
@@ -103,7 +118,7 @@ def main() -> int:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             timeout=3600,
-            env={**os.environ, "HARNESS_ROOT": str(dest)},
+            env=meta_env,
         )
         output = proc.stdout.decode(errors="replace")
         log_fh.write(output)
