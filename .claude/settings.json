@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "harness/hooks/on-generator-stop.sh"
+            "command": "python harness/hooks/on-generator-stop.py"
           }
         ]
       },
@@ -26,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "harness/hooks/on-evaluator-stop.sh"
+            "command": "python harness/hooks/on-evaluator-stop.py"
           }
         ]
       }
@@ -36,7 +36,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "harness/hooks/on-stop.sh"
+            "command": "python harness/hooks/on-stop.py"
           }
         ]
       }
