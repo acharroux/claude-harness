@@ -1,0 +1,145 @@
+{
+  "sprintNumber": 3,
+  "sprintName": "Git Operations",
+  "attempt": 1,
+  "overallResult": "PASS",
+  "passCount": 23,
+  "failCount": 0,
+  "criteriaResults": [
+    {
+      "id": "C3-01",
+      "result": "PASS",
+      "evidence": "python -c 'from harness.lib import git' exits 0; module imports cleanly with stdlib-only deps."
+    },
+    {
+      "id": "C3-02",
+      "result": "PASS",
+      "evidence": "All 9 functions resolved as callables: create_harness_branch, create_sprint_branch, merge_sprint, fail_sprint_attempt, commit_harness_state, create_pr, create_fix_pr, create_issue, generate_pr_body."
+    },
+    {
+      "id": "C3-03",
+      "result": "PASS",
+      "evidence": "test_creates_branch passed: returns 'harness/test-project' and current branch matches. git.py:104 sets harness_branch = f'harness/{project_slug}'."
+    },
+    {
+      "id": "C3-04",
+      "result": "PASS",
+      "evidence": "test_idempotent passed: second call after checkout main does not raise; git.py:118-119 falls back to checkout when create -b fails."
+    },
+    {
+      "id": "C3-05",
+      "result": "PASS",
+      "evidence": "test_creates_sprint_branch passed: returns 'harness/test-project-sprint-01' (zero-padded) at git.py:131."
+    },
+    {
+      "id": "C3-06",
+      "result": "PASS",
+      "evidence": "test_cleans_up_existing_branch passed: stale old.txt removed; git.py:135-136 force-deletes existing branch before recreating from harness branch."
+    },
+    {
+      "id": "C3-07",
+      "result": "PASS",
+      "evidence": "test_creates_merge_commit passed: 40-char hex SHA, current branch back on harness, merge message exactly 'harness(sprint-01): merge (PASS, attempt 1)'. git.py:176-181 uses --no-ff with canonical message."
+    },
+    {
+      "id": "C3-08",
+      "result": "PASS",
+      "evidence": "test_creates_tag passed: tag 'harness/sprint-01/pass' present after merge. git.py:185-186."
+    },
+    {
+      "id": "C3-09",
+      "result": "PASS",
+      "evidence": "test_deletes_sprint_branch passed: sprint branch no longer exists post-merge. git.py:189."
+    },
+    {
+      "id": "C3-10",
+      "result": "PASS",
+      "evidence": "test_tags_the_attempt passed: 'harness/sprint-01/attempt-1' present in tag list. git.py:203-204."
+    },
+    {
+      "id": "C3-11",
+      "result": "PASS",
+      "evidence": "test_deletes_sprint_branch and test_returns_to_harness_branch both passed. git.py:209,212 check out harness branch and force-delete sprint branch."
+    },
+    {
+      "id": "C3-12",
+      "result": "PASS",
+      "evidence": "test_handles_dirty_working_tree passed: git stash -q + checkout + stash drop -q sequence at git.py:208-210 mirrors bash behaviour."
+    },
+    {
+      "id": "C3-13",
+      "result": "PASS",
+      "evidence": "test_commits_changes passed: HEAD commit message contains 'harness: test commit'. git.py:222-229 stages harness-state and commits with the supplied message."
+    },
+    {
+      "id": "C3-14",
+      "result": "PASS",
+      "evidence": "test_noop_when_clean passed: HEAD SHA unchanged after invocation on clean repo. git.py:225-227 short-circuits via diff --cached --quiet."
+    },
+    {
+      "id": "C3-15",
+      "result": "PASS",
+      "evidence": "test_contains_sprint_table passed: generated body contains 'Sprint' header and 'PASS' status from fixture eval-report. generate_pr_body at git.py:388-470."
+    },
+    {
+      "id": "C3-16",
+      "result": "PASS",
+      "evidence": "test_sprint_number_zero_padded_two_digits and test_padding_in_tag_for_single_digit_sprint both passed: 'harness/p-sprint-09' branch and 'harness/sprint-09/pass' tag use sprint_pad consistently."
+    },
+    {
+      "id": "C3-17",
+      "result": "PASS",
+      "evidence": "All three TestGracefulDegradation tests passed. git.py:238-247, 283-292, 354-360 check shutil.which('gh') and origin remote, log warnings, and return without raising. create_issue returns ''."
+    },
+    {
+      "id": "C3-18",
+      "result": "PASS",
+      "evidence": "tests/layer1/test_git.py defines 19 test_* methods spanning 7 TestCase classes; covers all 13 bats scenarios (create-branch, idempotent, sprint-branch-creates, sprint-branch-cleanup, merge-creates-merge-commit, merge-creates-tag, merge-deletes-branch, fail-tags-attempt, fail-deletes-branch, fail-returns-to-harness, commit-state-commits, commit-state-noop-when-clean, generate-pr-body-contains-table) plus padding (C3-16), dirty-tree (C3-12), and graceful-degradation (C3-17) extras."
+    },
+    {
+      "id": "C3-19",
+      "result": "PASS",
+      "evidence": "python tests/run-all.py layer1 ran 77 tests in 23.774s with OK status (zero failures, zero errors)."
+    },
+    {
+      "id": "C3-20",
+      "result": "PASS",
+      "evidence": "test_git.py imports HarnessTestCase from tests.helpers.test_helper at line 22; every TestCase subclass calls self.init_test_repo() in setUp (lines 62, 90, 132, 192, 246, 274, 310). Tests run in isolated temp git repos."
+    },
+    {
+      "id": "C3-21",
+      "result": "PASS",
+      "evidence": "python -m unittest tests.layer1.test_utils tests.layer1.test_invoke ran 58 tests with OK status. No regressions in Sprint 1 or Sprint 2 functionality."
+    },
+    {
+      "id": "C3-22",
+      "result": "PASS",
+      "evidence": "git diff harness/sprint-02/pass -- '*.sh' '*.ps1' produced empty output. No .sh or .ps1 file modified by this sprint."
+    },
+    {
+      "id": "C3-23",
+      "result": "PASS",
+      "evidence": "AST-parsed imports in git.py: __future__, json, os, shutil, subprocess, pathlib, typing, and local harness.lib.utils. All stdlib + local utils; no third-party packages."
+    }
+  ],
+  "regressionResults": {
+    "sprintsTested": [1, 2],
+    "result": "PASS",
+    "evidence": "tests.layer1.test_utils (35 tests) and tests.layer1.test_invoke (22 tests) all pass. Combined run: 58 tests OK in 0.978s."
+  },
+  "holisticScores": {
+    "profile": "cli-tool",
+    "correctness": 9,
+    "robustness": 9,
+    "ergonomics": 8,
+    "documentation": 8,
+    "originality": 7,
+    "notes": "Faithful port of bash git.sh: branch/tag names match byte-for-byte, merge commit messages exact, graceful gh/origin fallback well-handled. _run/_git_ok/_git_out helpers cleanly encapsulate subprocess details. Module-level docstring documents naming conventions. Stdlib only as required."
+  },
+  "blockers": [],
+  "recommendations": [
+    "Optional: typing.Optional is imported but unused in git.py:23 -- safe to remove on a future cleanup pass.",
+    "Optional: in generate_pr_body, the dual-path sprint_count fallback (json_read -> json.load) is a safety belt; could be simplified to a single direct json.load now that fixtures are stable."
+  ],
+  "timestamp": "2026-06-13T11:00:00Z"
+}
