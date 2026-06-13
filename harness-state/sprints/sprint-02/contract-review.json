@@ -1,0 +1,42 @@
+{
+  "decision": "accepted",
+  "feedback": "The proposal is comprehensive, testable, and faithfully covers the sprint-plan.json scope. All 25 criteria have concrete test methods with explicit assertions, fixtures referenced exist in tests/helpers/fixtures/, and the constraints required by the project (no .sh/.ps1/.bats/.bash modifications, bash mock untouched, stdlib-only) are encoded as blocking criteria (C2-18, C2-19, C2-23). The Windows PATH shim strategy via tests/helpers/claude.cmd that execs python tests/helpers/mock_claude.py with %* arg forwarding is sound and avoids touching the existing POSIX bash shim. Coverage of invoke.sh is thorough: argv composition (C2-02), conditional --settings (C2-03), conditional --mcp-config (C2-04), shutil.which resolution and missing-binary error (C2-05), exit-code propagation (C2-06), NDJSON streaming with malformed-line tolerance (C2-07), tool_use progress to stderr (C2-08), cost line to stderr (C2-09), and stderr-only progress isolation (C2-10). Mock parity is covered for planner (C2-12), generator's two routes (C2-13), evaluator's three routes including revise-then-accept across calls (C2-14), log format and state files (C2-15), and usage_json on stdout (C2-16). Regression of sprint 1 is captured by C2-22 with a concrete utils.slugify check and the test_utils unittest run. The test-suite gate (C2-21) ties everything to a single runnable command. A few non-blocking observations are listed in issues for the generator's awareness, but none of them block acceptance.",
+  "issues": [
+    {
+      "id": "review-01",
+      "severity": "minor",
+      "criterion": "C2-08",
+      "description": "Tool-use preview logic in the bash version has multiple branches: .command[:80] for Bash, .file_path for file ops, .pattern for searches, fallback to tostring[:60]. C2-08 only tests the .command (Bash/ls) path. The implementation should preserve all branches; consider adding a sub-assertion that a tool_use record without .command but with .file_path produces the file path in the preview. Not a blocker."
+    },
+    {
+      "id": "review-02",
+      "severity": "minor",
+      "criterion": "C2-13",
+      "description": "Bash mock also copies generator-log-sample.md alongside status-ready-for-eval.json on the non-blocked implementation path. The C2-13 testSteps assert status.json content but do not explicitly assert generator-log.md is written. Generator should still emit generator-log.md to maintain parity, and ideally an extra test step would assert its presence. Not a blocker because C2-15 and C2-24 will catch gross divergences."
+    },
+    {
+      "id": "review-03",
+      "severity": "minor",
+      "criterion": "C2-13",
+      "description": "Bash mock extracts both sprint-NN and fix-NN sprint dirs from the prompt (lines 55-59 of tests/helpers/claude). The proposal does not explicitly call out the fix-NN branch. The Python mock should preserve fix-NN extraction so future fix-mode tests work. Add as implementation note; not a blocker for sprint-02."
+    },
+    {
+      "id": "review-04",
+      "severity": "minor",
+      "criterion": "C2-15",
+      "description": "The bash log line uses 'echo \"$PROMPT\" | head -c 100' which truncates to the first 100 bytes including any embedded newlines. The Python port must match this exactly (slice prompt[:100] on bytes/str without newline normalization) or interchangeability tests could drift. Worth an explicit note in the implementation."
+    },
+    {
+      "id": "review-05",
+      "severity": "minor",
+      "criterion": "C2-05",
+      "description": "Setting PATH to an empty dir in the test (C2-05 step 1) is reliable on POSIX but on Windows the system still searches PATHEXT and the current directory in some cases. Ensure the test patches both PATH and (if necessary) overrides shutil.which directly to force the not-found path on Windows runners."
+    },
+    {
+      "id": "review-06",
+      "severity": "info",
+      "criterion": "C2-17",
+      "description": "Confirm the .cmd shim uses '@echo off' and 'python \"%~dp0mock_claude.py\" %*' (or equivalent) so it survives spaces in paths and arg forwarding without quoting bugs. Verifying %* forwards quoted args correctly is worth a test step but the current criterion's behavioral assertion (subprocess.run exit 0 + fixture files appear) is sufficient."
+    }
+  ]
+}
