@@ -83,8 +83,8 @@ def main() -> int:
     # Remove PYTHONHOME if set — it would override the venv
     smoke_env.pop("PYTHONHOME", None)
 
-    with open(str(log_path), "w", encoding="utf-8") as log_fh:
-        proc = subprocess.run(
+    with open(str(log_path), "w", encoding="utf-8", errors="replace") as log_fh:
+        subprocess.run(
             [
                 str(venv_python),
                 str(smoke_dir / "harness" / "orchestrate.py"),
@@ -94,14 +94,12 @@ def main() -> int:
                 "--max-cost", "50",
             ],
             cwd=str(smoke_dir),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            timeout=1800,
+            stdout=log_fh,
+            stderr=log_fh,
+            timeout=3600,
             env=smoke_env,
         )
-        output = proc.stdout.decode(errors="replace")
-        log_fh.write(output)
-        print(output)
+    print(log_path.read_text(encoding="utf-8", errors="replace"))
 
     elapsed = int(time.time() - start)
     print(f"\nElapsed: {elapsed // 60}m {elapsed % 60}s")

@@ -94,8 +94,8 @@ def main() -> int:
     }
     meta_env.pop("PYTHONHOME", None)
 
-    with open(str(log_path), "w", encoding="utf-8") as log_fh:
-        proc = subprocess.run(
+    with open(str(log_path), "w", encoding="utf-8", errors="replace") as log_fh:
+        subprocess.run(
             [
                 str(venv_python),
                 str(dest / "harness" / "orchestrate.py"),
@@ -115,14 +115,12 @@ def main() -> int:
                 "--max-cost", "100",
             ],
             cwd=str(dest),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stdout=log_fh,
+            stderr=log_fh,
             timeout=3600,
             env=meta_env,
         )
-        output = proc.stdout.decode(errors="replace")
-        log_fh.write(output)
-        print(output)
+    print(log_path.read_text(encoding="utf-8", errors="replace"))
 
     elapsed = int(time.time() - start)
     print()
