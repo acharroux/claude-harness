@@ -1,0 +1,151 @@
+{
+  "sprintNumber": 7,
+  "sprintName": "Whisperer Adapter & Event Bus",
+  "evaluator": "harness-evaluator",
+  "evaluatedAt": "2026-06-12T22:00:00Z",
+  "branch": "harness/game-sprint-02-sprint-07",
+  "baseBranch": "harness/game-sprint-02",
+  "overallResult": "PASS",
+  "passCount": 22,
+  "failCount": 0,
+  "criteriaResults": [
+    {
+      "id": "C1",
+      "result": "PASS",
+      "evidence": "whisperdeep/events.py imports cleanly via `python -c 'from whisperdeep import events as _'` (exit 0). Module exposes Event (frozen dataclass), EventBus, EventType (Enum), EVENT_TYPES (tuple), WILDCARD. EventBus.publish/subscribe + emit/on aliases all callable (events.py:101-145)."
+    },
+    {
+      "id": "C2",
+      "result": "PASS",
+      "evidence": "Independently verified: Event(type='entered_room', payload={'room_id':3}, turn=12, floor=0) constructs correctly; e.type=='entered_room', e.turn==12, e.floor==0, e.payload['room_id']==3; mutating e.turn=99 raises FrozenInstanceError. events.py:55-69 uses @dataclass(frozen=True)."
+    },
+    {
+      "id": "C3",
+      "result": "PASS",
+      "evidence": "Single flat _subs list (events.py:96) preserves registration order. test_subscribers_receive_targeted_and_wildcard_events_in_order PASSED: A registered first for killed_monster, C registered third for '*'; on killed_monster publish, calls=='A:killed_monster','C:killed_monster' (correct order); on entered_room publish, B fires once and C fires again, A unchanged."
+    },
+    {
+      "id": "C4",
+      "result": "PASS",
+      "evidence": "EventType enum (events.py:31-40) has all seven required values; EVENT_TYPES tuple (events.py:44) is iterable and contains the same. set(EVENT_TYPES) >= {run_started, run_ended, entered_room, killed_monster, low_hp, found_item, descended} verified."
+    },
+    {
+      "id": "C5",
+      "result": "PASS",
+      "evidence": "whisperdeep/whisperer.py exposes Whisperer class (whisperer.py:60). Constructor signature accepts adapter (required), bus, budget, seed, per_turn_cap, fallback_adapter, event_types. Class exposes whispers (list attribute) and get_whispers() method, plus attach(bus)/detach()."
+    },
+    {
+      "id": "C6",
+      "result": "PASS",
+      "evidence": "whisperdeep/llm.py exports LLMAdapter (ABC), NullAdapter, OfflineAdapter, AdapterResult, LLMUnavailable. Verified directly: LLMAdapter() raises TypeError. AdapterResult is a frozen dataclass with text, tokens, adapter_name, fallback. NullAdapter.complete returns empty text + 0 tokens. OfflineAdapter.complete returns prose-pool string + 8 tokens."
+    },
+    {
+      "id": "C7",
+      "result": "PASS",
+      "evidence": "AnthropicAdapter (llm.py:235) and OpenAIAdapter (llm.py:279) read env var first; missing -> raise LLMUnavailable referencing the env var name. SDK imports (`import anthropic`, `import openai`) live inside complete() so module import succeeds without those packages installed. Verified by test_real_provider_adapter_raises_llm_unavailable_without_key."
+    },
+    {
+      "id": "C8",
+      "result": "PASS",
+      "evidence": "whisperdeep/prose_pool.json: 9 distinct entries per each of the 7 canonical event types = 63 total (>= 56 floor). All entries are non-empty 1-2 sentence strings. OfflineAdapter.complete(event_type=ET) draws from pool[ET] and returns a non-empty string (llm.py:217-227). Verified by test_offline_pool_has_at_least_eight_distinct_entries_per_event_type."
+    },
+    {
+      "id": "C9",
+      "result": "PASS",
+      "evidence": "OfflineAdapter holds its own random.Random(seed) (llm.py:198). Verified by test_offline_adapter_determinism_same_seed_identical_diff_seed_differs: seed=42 produces identical 5-element sequence twice; seed=43 differs from seed=42 in at least one element."
+    },
+    {
+      "id": "C10",
+      "result": "PASS",
+      "evidence": "Whisperer.attach subscribes for all canonical types (whisperer.py:125-133). _handle_event creates Whisper with text, source_event_type, source_turn, source_floor, adapter_name, fallback (whisperer.py:153-180). test_whisperer_produces_whispers_from_bus_with_full_metadata: publish 1 -> 1 whisper, publish 3 (different turns) -> 3 whispers, full metadata present and types correct."
+    },
+    {
+      "id": "C11",
+      "result": "PASS",
+      "evidence": "whisperer.py:189-191 short-circuits to fallback when budget_exhausted; whisperer.py:203-209 accumulates tokens_used and trips budget_exhausted=True after the call that crosses budget. _call_fallback returns 0 tokens (whisperer.py:228). test_budget_exhaustion_forces_fallback_but_whispers_keep_flowing: budget=30, FixedTokenAdapter at 20 tokens/call, 5 events on 5 turns -> 5 whispers, at least one fallback=False, at least one fallback=True, all texts non-empty, tokens_used <= 50, post-cap whispers have adapter_name=='offline'."
+    },
+    {
+      "id": "C12",
+      "result": "PASS",
+      "evidence": "whisperer.py:193-200 wraps adapter.complete in try/except, increments failure_count, sets error_reason, falls through to _call_fallback. test_flaky_adapter_does_not_crash_event_loop: FlakyAdapter raises RuntimeError on every call; first publish does not propagate; whisper has fallback=True, error_reason contains 'RuntimeError', failure_count >= 1; second publish also produces a fallback whisper (loop continues)."
+    },
+    {
+      "id": "C13",
+      "result": "PASS",
+      "evidence": "Manually verified: Game.from_seed(seed=1, whisperer=True) -> game.events is EventBus, game.whisperer is Whisperer with whispers[0].source_event_type=='run_started' and a non-empty text. Placed player on floor.downstairs_pos and called descend(); a 'descended' whisper appeared. Game.from_seed(seed=1, whisperer=False) -> events None, whisperer None. Logic in game.py:55-100 + game.py:136-166."
+    },
+    {
+      "id": "C14",
+      "result": "PASS",
+      "evidence": "`python -m whisperdeep --help` lists --whisperer {offline,null,anthropic,openai} (default offline), --no-whisperer, --whisper-budget, --dump-whispers (cli.py:80-117). Default headless run with cleared API keys exits 0 and prints '# whisperer: offline' banner. --no-whisperer exits 0 with NO banner. --whisperer null prints '# whisperer: null' and the dungeon frame; no prose-pool entries appear in stdout."
+    },
+    {
+      "id": "C15",
+      "result": "PASS",
+      "evidence": "Manually diffed: --no-whisperer stdout (A) and default stdout (B) for --seed 1 --headless. B starts with '# whisperer: offline\\n'; after stripping that line, B[len:] == A byte-for-byte. No prose-pool entries appear in either A or B. cli.py:154-164 only writes the banner when whisperer is enabled. test_dungeon_frame_unchanged_modulo_banner asserts the same."
+    },
+    {
+      "id": "C16",
+      "result": "PASS",
+      "evidence": "Two `python -m whisperdeep --seed 5 --headless --dump-whispers wN.json` runs produced identical JSON (verified manually: 1 whisper each, identical text='The threshold accepts you...', source_event_type='run_started', source_turn=0, source_floor=0, adapter_name='offline', fallback=False). test_whisper_dump_is_deterministic_across_processes also confirms seeds 5 vs 6 differ."
+    },
+    {
+      "id": "C17",
+      "result": "PASS",
+      "evidence": "Full pytest with no env vars set: 66 passed in 1.20s. test_no_network_imports_in_offline_or_null_adapter_source greps the pre-AnthropicAdapter section of llm.py for requests/httpx/urllib.request/socket.create_connection/import anthropic/import openai -- all absent. test_pytest_suite_does_not_import_network_modules_at_top_level scans the test file head for top-level network-lib imports -- none. Real-provider adapter tests use monkeypatch.delenv and assert LLMUnavailable BEFORE any SDK import is reached."
+    },
+    {
+      "id": "C18",
+      "result": "PASS",
+      "evidence": "All 21 sprint-01 contract tests + 10 test_game.py + 11 test_generator.py PASS (44 pre-Sprint-7 tests, 100% green). `python -m whisperdeep --seed 1 --headless` exits 0 with non-empty frame. Two seed-1 runs are byte-identical. seed 1 vs seed 2 produce different grids. Glyphs #, ., +, >, @ appear in seed-1 floor-0 frame; '<' does not appear because floor 0 by design has no upstairs (World places upstairs only on floors >= 1) -- this matches the previously-accepted Sprint-1/2 baseline. Threshold (prior tests pass; seed determinism + glyph contract preserved) satisfied."
+    },
+    {
+      "id": "C19",
+      "result": "PASS",
+      "evidence": "tests/test_sprint07.py defines 22 distinct `def test_*` functions (>= 12). Each required scenario covered: pub/sub (test_subscribers_receive_targeted_and_wildcard_events_in_order), event-type registry (test_canonical_event_types_exposed_and_iterable), immutability (test_event_immutability_and_required_fields), pool size (test_offline_pool...), determinism (test_offline_adapter_determinism...), auto-whisper (test_whisperer_produces_whispers_from_bus...), budget cap (test_budget_exhaustion...), failure resilience (test_flaky_adapter...), Game wiring (test_game_wiring_publishes_run_started_and_descended), missing key (test_real_provider_adapter_raises_llm_unavailable_without_key), dump determinism (test_whisper_dump_is_deterministic_across_processes), no-network (two tests). All 22 PASS."
+    },
+    {
+      "id": "C20",
+      "result": "PASS",
+      "evidence": "docs/whisperdeep.md covers all six topics: Sprint-7-is-plumbing-only callouts at lines 9-19 and 102-106; seven canonical event types table at lines 113-122; adapter abstraction table with Null/Offline/Anthropic/OpenAI + env vars at lines 130-141; token-budget + fallback section at lines 143-159; CLI flags table at lines 179-189; ANTHROPIC_API_KEY/OPENAI_API_KEY documented at lines 134-135; explicit 'whispers are NOT yet rendered' statements at lines 14, 104, 192-195. Contract permits 'README.md and/or docs/'."
+    },
+    {
+      "id": "C21",
+      "result": "PASS",
+      "evidence": "Layering invariants confirmed by direct grep + test_layering_invariants_via_source_grep. llm.py: zero `from whisperdeep.{game,world,floor,render}` imports. events.py: zero whisperer/llm imports (only stdlib: dataclasses, enum, typing). whisperer.py: imports events + llm (LLMAdapter ABC + OfflineAdapter); zero references to AnthropicAdapter/OpenAIAdapter. game.py module top imports `.events` only; `.adapter_factory` and `.whisperer` are LAZY imports inside Game.from_seed (game.py:79-80). adapter_factory.py is the single point that knows about concrete real-provider classes."
+    },
+    {
+      "id": "C22",
+      "result": "PASS",
+      "evidence": "Whisperer._handle_event (whisperer.py:155-166) enforces per-turn cap (default 3) and (turn,type) coalescing. test_whisperer_caps_whispers_per_turn_with_spammy_events: 50 'entered_room' events on turn=1 -> CountingAdapter.calls <= 3 and whispers <= 3 (in practice 1 due to type coalescing). 7 types x 3 events on turn=2 -> calls <= 3 and whispers <= 3."
+    }
+  ],
+  "regressionResults": [
+    {
+      "fromSprint": 1,
+      "result": "PASS",
+      "evidence": "All 21 tests in tests/test_sprint01.py PASS. Module-surface invariants, glyph set documented match, frame renders, headless determinism, no-third-party-imports check all green."
+    },
+    {
+      "fromSprint": 2,
+      "result": "PASS",
+      "evidence": "All 11 tests in tests/test_generator.py + 10 tests in tests/test_game.py PASS. Generator determinism (same seed -> identical floor; different seeds -> different floors), reachability of all walkable tiles, doors with valid adjacency, stair counts for 3-floor world, multi-floor descend/ascend, walls/doors movement rules, CLI --seed flag controls dungeon."
+    }
+  ],
+  "holisticScores": {
+    "correctness": 9,
+    "robustness": 8,
+    "codeQuality": 9,
+    "testing": 9,
+    "documentation": 9,
+    "notes": "projectType=general. Correctness (9): every contract criterion verified independently and by 22 focused tests; behavior matches plumbing-only intent. Robustness (8): budget guardrail, failure resilience, per-turn throttle all observed; even cascading fallback failure has a synthetic last-ditch whisper so the game is never silenced. One small gap: OfflineAdapter token cost is a fixed 8 tokens/call, so the budget is more 'whisper count' than 'real token count' for the offline path -- acceptable per contract ('estimated for OfflineAdapter') but worth noting. Code quality (9): clean layering invariants are real -- both grep-verified and AST-verified; lazy imports keep Game adapter-free at module load; soft SDK imports keep real-provider classes safe to import without the SDK. Testing (9): 22 new focused tests + 44 pre-existing tests, all 66 PASS in 1.2s with no API keys, no network. Documentation (9): docs/whisperdeep.md covers all six required topics with concrete tables and explicit Sprint-7-is-plumbing call-out. Minor: README.md was not refreshed to point at the new docs section, but the contract permits 'README.md and/or docs/'."
+  },
+  "primaryScore": 9,
+  "blockingIssues": [],
+  "minorIssues": [
+    "OfflineAdapter reports a fixed 8 tokens/call regardless of prose length (llm.py:189). Budget accounting on the offline path is therefore really a whisper-count cap. Acceptable for Sprint 7 but a length-based estimate would be more honest.",
+    "README.md at the repo root has no Sprint-7 pointer; all Sprint-7 docs live in docs/whisperdeep.md. C20 permits 'README.md and/or docs/' so this is non-blocking, but a single 'see docs/whisperdeep.md for Sprint 7' line in README would be polite polish.",
+    "C18 step 'glyphs #,.,+,<,>,@ all appear in the seed-1 frame' is technically not satisfiable because floor 0 in this codebase has no upstairs by design. The C18 *threshold* (prior tests pass; seed determinism + glyph contract preserved) is satisfied; treating the literal step as a hard requirement would also have failed Sprint 1/2 evals, which were accepted."
+  ],
+  "recommendation": "PASS -- merge sprint-07. Implementation is comprehensive, well-layered, fully tested (66/66 pytest pass with no API keys / no network), and faithful to the contract on all 22 criteria. Documentation explicitly notes plumbing-only status. Regression on sprints 1+2 fully clean."
+}

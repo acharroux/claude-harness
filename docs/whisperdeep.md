@@ -1,0 +1,718 @@
+# Whisperdeep
+
+A roguelike with a living dungeon master.
+
+This is the game built sprint-by-sprint inside this repository by the
+Planner–Generator–Evaluator harness. The harness tooling itself lives in
+`harness/` and is documented in [the top-level README](../README.md).
+
+> **Status — Sprint 12: Polish (Keybinds, Audio, Leaderboard, Badges,
+> Run Summary).** This is the final polish sprint. Four loosely-coupled
+> pieces ship on top of the playable Sprints 1/2/7/8/10/11 core.
+>
+> **(Keybinds)** The interactive loop now consults a small `KeyBindings`
+> registry (`whisperdeep/keybinds.py`) instead of a hard-coded `moves`
+> dict. Defaults cover vi-keys (`h/j/k/l/y/u/b/n`) AND the ANSI
+> arrow-key escape sequences, plus stairs (`>` `<`), wait (`.`), help
+> (`?`), and quit (`q`). A `:`-prefixed in-game **command prompt**
+> dispatches power-user actions: `:quit`, `:help`, `:descend`, `:ascend`,
+> `:bindings`, `:summary`, `:bind <command> <key>`, `:unbind <key>`.
+> Bindings load from a JSON file via `--keys PATH` or the
+> `WHISPERDEEP_KEYS` environment variable; missing files fall back to
+> defaults, malformed files raise a clear error, and unknown command
+> names are rejected with the offending entry named. Two info-only CLI
+> flags: `--list-bindings` (one-line-per-command summary) and
+> `--print-help-overlay` (the in-game help block).
+>
+> **Default keybind table** (every command + the keys bound to it):
+>
+> | command     | default keys                |
+> | ----------- | --------------------------- |
+> | move_west   | `h`, `<Left>`               |
+> | move_east   | `l`, `<Right>`              |
+> | move_north  | `k`, `<Up>`                 |
+> | move_south  | `j`, `<Down>`               |
+> | move_nw     | `y`                         |
+> | move_ne     | `u`                         |
+> | move_sw     | `b`                         |
+> | move_se     | `n`                         |
+> | wait        | `.`                         |
+> | descend     | `>`                         |
+> | ascend      | `<`                         |
+> | quit        | `q`                         |
+> | help        | `?`                         |
+> | redraw      | `<Ctrl-L>`                  |
+> | summary     | (unbound; available via `:summary`) |
+> | bindings    | (unbound; available via `:bindings` or `?`) |
+>
+> **(Audio)** A pluggable, OPT-IN, terminal-friendly audio adapter
+> layer (`whisperdeep/audio.py`). Audio is **OFF by default**. The
+> module exposes an `AudioAdapter` Protocol, a silent `NullAudioAdapter`
+> (the default), and a recording `LogAudioAdapter` (used by tests). A
+> small cue registry (`CUES` + `EVENT_TO_CUE`) maps named cues
+> (`footstep`, `bump`, `descend`, `ascend`, `low_hp`, `run_started`,
+> `run_ended`, `epitaph`, `first_sight`) to canonical event types so the
+> existing event bus drives audio without coupling. CLI flags
+> `--audio CHOICE` (`null` (default) | `log`) and `--dump-audio PATH`
+> wire and trace adapters. **No real audio backend (no
+> `winsound`/`playsound`/`pyaudio`/`pygame`/`numpy`) ships in this
+> sprint** — the architecture is shipped, real backends are a
+> future-sprint concern.
+>
+> **(Leaderboard)** A local JSON leaderboard
+> (`whisperdeep/leaderboard.py`) at `./leaderboard.json` (override via
+> `--leaderboard PATH`, disable via `--no-leaderboard`). Each entry has
+> required keys: `seed`, `name`, `floors_reached`, `turns`, `score`,
+> `archetype`, `timestamp` (ISO-8601 UTC `Z`). Score is
+> `floors_reached * 100 + turns`. Entries are sorted by score DESC then
+> timestamp ASC and capped at **50** entries. The file is auto-created
+> when missing; corrupt or non-list files are tolerated (treated as
+> empty). End-of-run, when a chronicle is also written, an entry is
+> appended (unless `--no-leaderboard`). `--print-leaderboard` shows the
+> top-10 and exits without starting a run.
+> `--leaderboard-fixed-timestamp ISO` pins the timestamp for
+> deterministic snapshot tests. Cloud sync / multi-user accounts are
+> explicitly out of scope; this is a local file only.
+>
+> **(Daily seed + shareable seed strings)** `--daily` derives the seed
+> from today's UTC date (`int(YYYYMMDD)`); e.g. 2026-06-12 →
+> `20260612`. `--daily-date YYYY-MM-DD` overrides the date for
+> reproducible CI runs. `--seed-string TEXT` hashes a human-readable
+> string deterministically: SHA-256 of the UTF-8 bytes, take the first 8
+> bytes as a big-endian unsigned int, then mod `2**31`. The same TEXT
+> yields the same seed forever, on every Python version on every
+> platform. (Python's built-in `hash()` is **not** used because it is
+> salted per process.) Passing more than one of `{--seed, --daily,
+> --seed-string}` is an error.
+>
+> **(Run badges)** Every run can produce a single-line ASCII **badge**
+> via `whisperdeep/summary.py:build_badge`. The canonical format is
+> exactly:
+>
+> ```
+> WHISPERDEEP seed=<S> floors=<F> turns=<T> archetype=<A> v1 <CHK>
+> ```
+>
+> where `<CHK>` is the first 6 lowercase hex chars of `sha256(prefix)`
+> with `prefix` being everything up to and including `v1`. Two runs
+> with identical `(seed, floors, turns, archetype)` produce identical
+> badges. CLI flags: `--print-badge` prints the badge and exits;
+> `--no-badge` suppresses the sibling `<chronicle>.badge.txt` file when
+> a chronicle is being written.
+>
+> **(Run summary)** A public `build_run_summary(game, *, name,
+> fixed_timestamp=None) -> str` returns a multi-line plain-text block
+> with header `== Run Summary ==`, then `name`, `seed`, `floors`,
+> `turns`, `score`, `archetype`, `timestamp`, optional `chronicle`,
+> optional `rank`, and the embedded `badge`. Default-on for headless
+> runs when `--chronicle` is set; gated by `--summary` / `--no-summary`
+> otherwise. With a fixed timestamp injected, the block is
+> byte-deterministic across processes for the same `(seed, name)`.
+>
+> **Sprints 3 (FOV+combat), 4 (items), 5 (monsters), 6 (save/load), and
+> 9 (director nudges + meta-memory) are NOT in tree** and are explicitly
+> deferred to future sprints; Sprint 12 does not depend on any of them.
+> The Sprint 10 deferral note about cross-run "death legends" (the
+> Whisperer reading prior chronicles in a future run) is also still in
+> effect.
+>
+> **Status — Sprint 11: Themed Archetypes & Palettes.** The dungeon now
+> has a **soul**. Each floor is assigned a thematic *archetype*
+> deterministically from `(master_seed, floor_index)`: at minimum
+> **crypt**, **flooded_sewer**, **mushroom_forest**, **bone_library**,
+> plus a rare/secret archetype (**whisperhall**). Each archetype carries
+> its own glyph variant table (e.g., crypt walls render as `#`, sewer
+> floors as `,`, mushroom forest walls as `%`, bone library walls as
+> `:`), a structured palette (256-color xterm indices and/or `#rrggbb`
+> hex strings), an archetype-keyed prose tag the Whisperer's offline
+> pool leans into, and a metadata-only monster pool that Sprint 5 will
+> eventually consume. The TileKind enum is unchanged: variant glyphs
+> preserve walkability semantics. The reserved player (`@`), upstairs
+> (`<`), and downstairs (`>`) glyphs are never overridden. Determinism
+> is preserved: same seed -> same archetype assignment -> same rendered
+> frame and same whispers. Two new CLI flags ship: `--archetype ID`
+> forces a single archetype across all floors of the run (used for
+> screenshots and tests), and `--list-archetypes` prints a one-line
+> summary of every registered archetype and exits 0. Each whisper now
+> carries the archetype id of its source floor in its dump (`dump()`,
+> `--dump-whispers`). ANSI colour output is **opt-in** in Sprint 11 via
+> a new `colorize_frame(game)` helper; the default `render_frame` /
+> `render_frame_with_whispers` continue to emit zero ESC characters so
+> Sprint-2 / Sprint-7 / Sprint-10 byte-determinism contracts remain
+> intact. Full colour wiring lands in Sprint 12.
+>
+> **Status — Sprint 10: Chronicle Generator.** Every run can now produce
+> a self-contained Markdown **chronicle** that summarises the run as a
+> small piece of dark-fantasy prose. A chronicle has four sections, in
+> order: an `H1` title that incorporates the player's name, a
+> `## Metadata` block (machine-readable bullets for `seed`, `name`,
+> `floors_reached`, `turns`, `adapter`, `timestamp`), a
+> `## Notable Events` section that bullets every recorded whisper in
+> chronological order with `[<event_type>@t<turn>:f<floor>] <text>`, and
+> a `## Epitaph` Markdown blockquote drawn from the new `epitaph` event
+> type's prose pool. A new lifecycle hook, `Game.end_run(cause='quit')`,
+> publishes the canonical `run_ended` and `epitaph` events at the end
+> of a run; it is idempotent and a documented safe no-op when the
+> Whisperer is disabled. Two new CLI flags wire it up: `--name NAME`
+> sets the character name, `--chronicle PATH` writes the Markdown to
+> PATH at end-of-run (default off). The chronicle's timestamp is
+> ISO-8601 UTC with a trailing `Z`; tests pin it via the
+> `--chronicle-fixed-timestamp ISO` flag (or, in Python, the
+> `fixed_timestamp=...` keyword argument). The default chronicle path
+> generated by `default_chronicle_path` lives under `chronicles/` with
+> the pattern `seed-<N>-<slug>-floor-<F>.md`. Cross-run "death legends"
+> (the Whisperer reading prior chronicles in a future run) are
+> **deferred to a future sprint** -- chronicles are produced and saved
+> to disk but are NOT yet loaded back into a future run's Whisperer.
+>
+> **Status — Sprint 8: Whispers in Play.** The Whisperer is now visible
+> in-game: each headless run composites a fixed-size **whisper panel** to
+> the right of the dungeon grid (two-space gutter, 30 columns by 12 rows
+> by default), so players can actually read the prose. Two new event
+> sources land in this sprint: **first-sight naming** mints an evocative
+> name the first time the player encounters a particular monster or item
+> kind (and the name is reused for the rest of the run), and
+> **atmospheric room prose** fires when the player enters a
+> previously-unseen room (deduped per `(floor, room_id)` for the run).
+> Determinism, the Sprint-2 byte-level grid contract, and the no-network
+> test posture from Sprint 7 are all preserved. The original
+> `render_frame(game)` still returns the bare dungeon grid; the
+> composite frame is produced by `render_frame_with_whispers` and used
+> by the default `--headless` CLI.
+>
+> **Status — Sprint 7: Whisperer Adapter & Event Bus** *(superseded by
+> Sprint 8 for the "plumbing-only" note — whispers ARE rendered in the
+> frame now)*. The dungeon raises in-game events on a structured event
+> bus, a *Whisperer* service consumes those events and produces 1-3
+> sentence "whispers" via a pluggable LLM adapter, and a hard
+> token-budget guardrail forces a graceful degrade to a deterministic
+> offline prose pool when the budget is exhausted or a network call
+> fails.
+
+---
+
+## Quick start
+
+Whisperdeep targets **Python 3.11+**. From the repository root:
+
+```sh
+python -m whisperdeep --seed 1
+```
+
+Headless mode (prints the initial frame and exits) — useful for snapshot tests
+and CI:
+
+```sh
+python -m whisperdeep --seed 1 --headless
+```
+
+## Glyph legend
+
+The renderer uses a strict ASCII glyph set:
+
+| Glyph | Meaning              |
+| :---: | :------------------- |
+| `#`   | wall (impassable)    |
+| `.`   | floor (walkable)     |
+| `+`   | door (walkable)      |
+| `<`   | upstairs             |
+| `>`   | downstairs           |
+| `@`   | the player           |
+
+Walls block movement; bumping into a wall is a no-op. Doors are walkable.
+Stairs are walkable too; press `>` on a downstairs tile or `<` on an
+upstairs tile to actually change floor.
+
+## Controls (interactive mode)
+
+| Key      | Action                              |
+| :------: | :---------------------------------- |
+| h/j/k/l  | move west / south / north / east    |
+| y/u/b/n  | move diagonally (NW/NE/SW/SE)       |
+| `.`      | wait one turn                       |
+| `>`      | descend stairs (when on `>`)        |
+| `<`      | ascend stairs (when on `<`)         |
+| q        | quit                                |
+
+## Dungeon generator
+
+The generator (`whisperdeep.generator`) is a deterministic
+rooms-and-corridors algorithm. Given a `(width, height, seed)` triple it
+always produces the same floor.
+
+```python
+from whisperdeep.generator import generate
+floor = generate(width=80, height=40, seed=12345)
+```
+
+### Multi-floor worlds
+
+A `World` packages together a dungeon of several floors:
+
+```python
+from whisperdeep.world import World
+world = World(master_seed=999, num_floors=3, width=80, height=40)
+```
+
+Each floor's seed is derived from the master seed plus its index, so a
+single master seed reproduces the entire dungeon.
+
+## The Whisperer (Sprint 7)
+
+The Whisperer is Whisperdeep's signature LLM-driven dungeon master. Sprint
+7 ships its plumbing in four cleanly separated layers:
+
+1. an in-game **Event Bus** the rest of the engine publishes to;
+2. a provider-agnostic **LLM Adapter** abstraction with offline / null /
+   real-provider implementations;
+3. the **Whisperer service** that consumes events, queries the adapter,
+   and records whispers;
+4. a **token-budget guardrail** that degrades to the offline prose pool
+   when the budget is exhausted or the primary adapter fails.
+
+### Sprint 7 is plumbing only
+
+Whispers produced in Sprint 7 are **not** displayed in the dungeon frame.
+They live in `game.whisperer.whispers` and can be dumped to JSON via
+`--dump-whispers PATH`. Rendering whispers in the game UI is Sprint 8.
+
+### Canonical event types
+
+The bus accepts a closed set of event-type strings, exposed both as the
+`EventType` enum and the `EVENT_TYPES` tuple:
+
+| Event type        | Fires when                                                     |
+| ----------------- | -------------------------------------------------------------- |
+| `run_started`     | A new game/run is constructed.                                 |
+| `run_ended`       | A run terminates (death, victory, quit).                       |
+| `entered_room`    | The player walks into a previously-unvisited room.             |
+| `killed_monster`  | A monster's HP reaches zero from the player's actions.         |
+| `low_hp`          | The player crosses a low-HP threshold.                         |
+| `found_item`      | An item is added to the player's inventory.                    |
+| `descended`       | The player descends a staircase to a deeper floor.             |
+
+Sprint 7 wires the Game to publish at least `run_started` (on
+construction with whispering enabled) and `descended` (on `Game.descend()`).
+Other events become live as their upstream features land in later
+sprints; tests publish them directly in the meantime.
+
+### Adapters
+
+| Adapter             | Source / behavior                                        | Env var              |
+| ------------------- | -------------------------------------------------------- | -------------------- |
+| `NullAdapter`       | Always returns the empty string and zero tokens.         | —                    |
+| `OfflineAdapter`    | Deterministic prose drawn from `prose_pool.json`.        | —                    |
+| `AnthropicAdapter`  | Real Claude API (stubbed in Sprint 7; lazy SDK import).  | `ANTHROPIC_API_KEY`  |
+| `OpenAIAdapter`     | Real OpenAI API (stubbed in Sprint 7; lazy SDK import).  | `OPENAI_API_KEY`     |
+
+All adapters implement the abstract `LLMAdapter.complete(prompt, *,
+max_tokens, event_type=None)` method and return an `AdapterResult(text,
+tokens, adapter_name, fallback)`. Real-provider adapters raise
+`LLMUnavailable` when their API key (or SDK) is missing — this never
+crashes import.
+
+### Token-budget guardrail and fallback
+
+Each `Whisperer` accepts a `budget` (default: 10,000 estimated tokens). The
+Whisperer accumulates `tokens_used` after every successful primary-adapter
+call. When `tokens_used >= budget`:
+
+* subsequent whispers are served from the **fallback adapter** (an
+  `OfflineAdapter`) and marked `fallback=True`;
+* fallback whispers consume **zero** further chargeable tokens;
+* the game is never silenced — whispers continue to flow with prose drawn
+  from the offline pool.
+
+Adapter failures (any exception, including `LLMUnavailable` and network
+errors) are caught: the failure is recorded in `whisperer.failure_count`
+and on the per-whisper `error_reason` field, the whisper is served from
+the fallback pool with `fallback=True`, and processing continues. The
+Whisperer never re-raises out of its event handler.
+
+### Whisper-rate throttle
+
+To prevent runaway cost from spammy events (e.g. a teleport firing 50
+`entered_room` events on the same player turn), the Whisperer caps
+whispers-per-turn at `DEFAULT_PER_TURN_CAP = 3` and coalesces consecutive
+same-type events on the same turn into a single whisper. Pass
+`per_turn_cap=N` to the constructor to change the cap.
+
+### Fallback prose pool
+
+The pool ships at `whisperdeep/prose_pool.json` with **9 distinct
+entries per canonical event type (63 total)**, well above the contract's
+8-per-type / 56-total floor. Each entry is a 1-3 sentence atmospheric
+string drawn from the type's pool when the OfflineAdapter is hinted with
+that event type.
+
+### CLI flags
+
+| Flag                        | Default     | Meaning                                                              |
+| --------------------------- | :---------: | -------------------------------------------------------------------- |
+| `--seed N`                  | `1`         | Master seed for dungeon generation. Same seed → same dungeon.        |
+| `--width N`                 | `80`        | Floor width in tiles.                                                |
+| `--height N`                | `40`        | Floor height in tiles.                                               |
+| `--floors N`                | `3`         | Number of dungeon floors.                                            |
+| `--headless`                | off         | Print the initial frame and exit (no input loop).                    |
+| `--whisperer NAME`          | `offline`   | Adapter: `offline` / `null` / `anthropic` / `openai`.                |
+| `--no-whisperer`            | off         | Disable the Whisperer entirely (no bus, no banner, no events).       |
+| `--whisper-budget N`        | (built-in)  | Override the Whisperer's token budget.                               |
+| `--dump-whispers PATH`      | (none)      | Write the whisper log to PATH as a JSON array.                       |
+
+The default headless run uses the offline adapter and never makes network
+calls. The only stdout difference between a default run and a
+`--no-whisperer` run is a single banner line of the form
+`# whisperer: <adapter>` printed before the dungeon frame; the dungeon
+glyph rows themselves are byte-identical.
+
+### Determinism
+
+Two `python -m whisperdeep --seed N --headless --dump-whispers PATH`
+invocations with the same seed (offline adapter) write identical whisper
+sequences to disk — same prose, same source-event metadata, same order.
+Different seeds produce different sequences. Real-provider adapters are
+NOT expected to be deterministic.
+
+### Layering
+
+The Sprint 7 modules respect strict layering invariants so the Whisperer
+remains pluggable:
+
+* `whisperdeep.events` imports nothing from `whisperer` or `llm`.
+* `whisperdeep.llm` imports nothing from `game` / `world` / `floor` /
+  `render`.
+* `whisperdeep.whisperer` imports `events` and the `LLMAdapter` ABC, but
+  not the concrete real-provider classes.
+* `whisperdeep.game` imports `events` (so it can publish), but
+  `whisperer` and `llm` are imported lazily inside `Game.from_seed` —
+  Game-side gameplay never imports a concrete adapter.
+
+## Whispers in Play (Sprint 8)
+
+Sprint 8 makes the Whisperer **visible**. Three additions land:
+
+1. an in-frame **whisper panel** rendered to the right of the dungeon
+   grid in default `--headless` runs;
+2. **first-sight naming** — the first time the player meets a particular
+   monster or item kind, the Whisperer mints an evocative name that is
+   reused for the rest of the run;
+3. **atmospheric room prose** — when the player enters a
+   previously-unseen room, the Whisperer emits a 1-2 sentence room
+   description (deduped per `(floor, room_id)` for the run).
+
+### Panel layout
+
+The panel sits **right-of-grid**: each rendered row is
+`<grid_row><gutter><panel_row>` with a two-space gutter. The default
+panel is **30 columns wide** by **12 rows tall**, padded to those exact
+dimensions on every line so the dungeon does not jitter. The panel
+displays the most-recent whispers with newest at the bottom; older
+whispers fall out of the visible window when more whispers exist than
+fit. The whisper log itself (`game.whisperer.whispers`) is never
+mutated — only the rendered view is windowed.
+
+The panel is plain ASCII (with optional box-drawing characters allowed).
+There are no curses, no colour codes, no ANSI styling, no input
+changes — Sprint 8 stays text-only.
+
+### Per-category visual markers
+
+Each whisper carries a one-character prefix marker so the categories are
+visually distinguishable in the panel:
+
+| Category               | Marker | Meaning                          |
+| ---------------------- | :----: | -------------------------------- |
+| `room_entered`         | `~`    | Atmospheric room prose.          |
+| `first_sight`          | `*`    | A new name has been minted.      |
+| everything else        | `>`    | Generic whisper.                 |
+
+Continuation rows of a wrapped whisper are indented two spaces so the
+visual grouping is obvious.
+
+### New canonical event types
+
+Sprint 8 extends `EVENT_TYPES` (in `whisperdeep.events`) with two
+additional canonical names. The Sprint-7 originals remain present and
+unchanged.
+
+| Event type     | Payload                                        | Fires when                                                                |
+| -------------- | ---------------------------------------------- | ------------------------------------------------------------------------- |
+| `first_sight`  | `{"kind": str, "category": "monster"|"item"}`  | Player encounters a kind they have not seen this run (idempotent).        |
+| `room_entered` | `{"floor": int, "room_id": int}`               | Player enters a room not yet visited; deduped per `(floor, room_id)`.     |
+
+### First-sight name template
+
+`first_sight` pool entries contain a `{name}` placeholder (Python
+`str.format`-style); the Whisperer mints a name on first sight and
+substitutes the placeholder in the rendered whisper text. The
+substitution is exact — the placeholder never appears verbatim in the
+final whisper. `${name}` is also recognized for compatibility.
+
+The mint is deterministic: a per-Whisperer RNG (seeded the same way as
+the offline adapter) chooses an adjective from a small fixed pool and
+combines it with the kind string (e.g. `"creeping goblin"`). Re-firing
+`first_sight` for the same kind reuses the previously-minted name and
+does not produce a second whisper.
+
+### Per-(floor, room_id) dedupe
+
+`room_entered` is deduped on the `(floor, room_id)` pair within a run.
+Re-entering a room that already produced a whisper this run is a no-op:
+no new event is published by the Game and (defensively) the Whisperer
+itself also drops the duplicate.
+
+### CLI flags introduced in Sprint 8
+
+| Flag                    | Default           | Meaning                                                                        |
+| ----------------------- | :---------------: | ------------------------------------------------------------------------------ |
+| `--no-panel`            | off               | Suppress the whisper panel without disabling the Whisperer; whispers still accumulate in the log and `--dump-whispers` still works. |
+| `--panel-width N`       | `30`              | Width of the whisper panel column (right-of-grid layout).                      |
+| `--no-whisperer`        | off (Sprint 7)    | Disable the Whisperer entirely (no bus, no banner, no panel).                  |
+
+The default `--headless` run renders the composite **grid + panel**
+output. `--no-panel` keeps the Whisperer running but renders the
+Sprint-2 grid only. `--no-whisperer` is the strongest off-switch and
+remains byte-deterministic for the same seed.
+
+### `Game.observe_kind(kind, category)`
+
+The integration hook for first-sight naming. Calling
+`game.observe_kind("goblin", category="monster")` publishes a
+`first_sight` event for that kind. The hook is idempotent for the run
+(repeat calls for the same kind are no-ops) and is a safe no-op when
+the Game was constructed with `whisperer=False`.
+
+### Determinism
+
+With `--seed N --headless` and the offline adapter, the FULL stdout
+(banner, dungeon grid, whisper panel, minted names) is byte-identical
+across separate processes for the same seed. Different seeds yield
+different output. `--seed N --headless --dump-whispers PATH` continues
+to produce identical JSON whisper arrays for the same seed (extending
+Sprint 7's dump-determinism contract to the new `first_sight` and
+`room_entered` event types).
+
+## Chronicles (Sprint 10)
+
+Every Whisperdeep run can produce a self-contained Markdown **chronicle**
+summarising the run for the player.
+
+### Format
+
+A chronicle has exactly four sections, in this order:
+
+1. `# <Name> — A Whisperdeep Chronicle` (Markdown H1).
+2. `## Metadata` -- a bullet list with one entry per key: `seed`, `name`,
+   `floors_reached`, `turns`, `adapter`, `timestamp`. Format is
+   `- key: value` so the block is trivially machine-readable.
+3. `## Notable Events` -- one bullet per recorded whisper, in
+   chronological order. Each bullet has the form
+   `- [<event_type>@t<turn>:f<floor>] <text>` so an automated tool can
+   cheaply enumerate the events without rerunning the Whisperer.
+4. `## Epitaph` -- a single Markdown blockquote line (`> ...`) whose
+   text equals the most-recent `epitaph` whisper for the run. When no
+   `epitaph` whisper exists (e.g. because `Game.end_run` was never
+   called), a placeholder line is used.
+
+### The `epitaph` event type
+
+Sprint 10 adds `epitaph` to `EVENT_TYPES` in a strictly additive way --
+the original seven Sprint-7 names and the two Sprint-8 additions
+(`first_sight`, `room_entered`) are unchanged. The `OfflineAdapter`
+prose pool (`whisperdeep/prose_pool.json`) ships with at least eight
+distinct `epitaph` entries so the offline path produces a deterministic,
+seed-driven epitaph for every run.
+
+### Lifecycle hook
+
+`Game.end_run(cause='quit', summary=None)` publishes a `run_ended`
+event followed by an `epitaph` event on the existing `EventBus`. The
+hook is **idempotent** (a second call returns `False` and emits no new
+events) and is a documented safe no-op when the Whisperer is disabled
+(`whisperer=False`). The two events are stamped with sentinel turn
+numbers beyond the player's turn counter so they don't collide with
+the Sprint-7 per-turn cap that already retired the early-game prose.
+
+### CLI flags
+
+| Flag                              | Meaning                                                                |
+| :-------------------------------- | :--------------------------------------------------------------------- |
+| `--name NAME`                     | Character name embedded in the chronicle title and metadata block.    |
+| `--chronicle PATH`                | Write a chronicle to PATH at end-of-run. Default off.                  |
+| `--chronicle-fixed-timestamp ISO` | Pin the chronicle's `timestamp` field for deterministic snapshot tests. |
+| `--no-chronicle`                  | Force-disable chronicle writing even when `--chronicle` is set.       |
+
+### Default chronicle path
+
+When code wants a default location without supplying one, call
+`whisperdeep.chronicle.default_chronicle_path(game, name)`. The
+returned path lives under a `chronicles/` directory (relative to the
+process CWD by default) with a filename pattern of
+`seed-<N>-<slug>-floor-<F>.md`. The slug is a lowercase, hyphen-only
+form of the character name; whitespace and punctuation collapse to
+single hyphens, and an empty / whitespace-only name degrades to
+`unnamed`. Two chronicles for distinct seeds or distinct names land in
+distinct files automatically.
+
+### Determinism
+
+With a fixed `--seed N --name X` and a fixed timestamp injection, the
+chronicle Markdown is byte-identical across two separate processes.
+The Python API supports the same pinning via the `fixed_timestamp=`
+keyword on `build_chronicle` and `write_chronicle`. The timestamp is
+the only field that varies between runs when no fixed timestamp is
+supplied; the rest of the chronicle is fully derived from the seed and
+the player's actions.
+
+### What's NOT in this sprint
+
+* Cross-run "death legends": Sprint 10 writes chronicles to disk but
+  does **not** load them back into a future run's Whisperer context.
+  Persistence-of-narrative across runs is deferred.
+* Save/load of in-progress runs, run-summary terminal screen, single
+  save slot, and permadeath state machine. These remain Sprint 6
+  territory.
+* Director-mode procgen nudges and persistent meta-memory of named
+  NPCs across runs. Sprint 9 territory.
+
+## Archetypes & Palettes (Sprint 11)
+
+Sprint 11 adds **themed archetypes** to every floor. Each floor in the
+World is assigned a `DungeonArchetype` deterministically from the master
+seed and the floor index, and that archetype contributes:
+
+* a **glyph variant table** (`glyph_overrides: TileKind -> str`) -- swaps
+  the per-cell glyph used by `render_frame` / `render_floor` while
+  keeping the underlying `TileKind` unchanged. Walkability is
+  preserved: a wall-variant is still `walkable=False`, a floor-variant
+  still `walkable=True`. The reserved glyphs `@` (player), `<`
+  (upstairs), `>` (downstairs) are NEVER overridden.
+* a **palette descriptor** (`palette: dict[str, int|str]`) -- a mapping
+  with at minimum the keys `wall_fg`, `floor_fg`, `door_fg`,
+  `upstairs_fg`, `downstairs_fg`, `player_fg`. Values are either an
+  integer in `[0, 255]` (xterm 256-color index) **or** a hex string
+  matching `^#[0-9a-fA-F]{6}$`. Optional extra keys `panel_fg` and
+  `panel_bg` are included on the built-ins.
+* a **prose tag** (`prose_tag: str`) -- the Whisperer's offline prose
+  pool gains keys of the form `<event_type>.<archetype_id>` (e.g.
+  `room_entered.crypt`, `first_sight.mushroom_forest`). When an event's
+  payload carries an `archetype` field, the offline adapter prefers
+  the tagged sub-pool and falls back to the generic key. At minimum
+  every archetype provides 4 distinct entries for `room_entered` and
+  4 for `first_sight`.
+* a **monster pool tag** (`monster_pool: list[str]`) -- a metadata-only
+  list of monster-kind strings flavour-appropriate to the archetype.
+  Sprint 11 does **not** spawn monsters; this is a stub that Sprint 5
+  ('Monsters & AI') will consume.
+
+### Registered archetypes
+
+| id                 | name                       | wall | floor | door | prose tag         | monster pool size | rare? |
+|--------------------|----------------------------|------|-------|------|-------------------|-------------------|-------|
+| `crypt`            | Crypt of Hollow Saints     | `#`  | `.`   | `+`  | `crypt`           | 4                 | no    |
+| `flooded_sewer`    | The Flooded Sewer          | `=`  | `,`   | `/`  | `flooded_sewer`   | 4                 | no    |
+| `mushroom_forest`  | The Mushroom Forest        | `%`  | `"`   | `+`  | `mushroom_forest` | 4                 | no    |
+| `bone_library`     | The Bone Library           | `:`  | `.`   | `I`  | `bone_library`    | 4                 | no    |
+| `whisperhall`      | The Whisperhall (rare)     | `&`  | `` ` ``| `\|` | `whisperhall`     | 4                 | yes   |
+
+(Note: `crypt` deliberately keeps the Sprint-1/2 default wall/floor/door
+glyphs so existing snapshot tests remain meaningful when pinned to it
+via `--archetype crypt` or `forced_archetype="crypt"`.)
+
+### Determinism
+
+`assign_archetype(master_seed, floor_index)` is a pure SHA-256-based
+weighted draw over the registry. The same `(master_seed, floor_index)`
+pair always returns the same `DungeonArchetype` instance. Across a
+small sweep of seeds and floors, all five archetypes are reachable and
+the rare archetype shows up at least once.
+
+### CLI flags
+
+* `--archetype ID` — force a single archetype across **all floors** of
+  the run, overriding the seed-derived assignment. Useful for
+  screenshots and tests. Run with an unknown id and the CLI exits with
+  a non-zero status and a clear error pointing at `--list-archetypes`.
+* `--list-archetypes` — print one summary line per registered archetype
+  (id, name, glyph overrides, monster pool size) and exit 0 without
+  starting a run.
+
+### Whisper records carry archetype
+
+Every `Whisper` produced by the Whisperer now carries an `archetype`
+field (the archetype id of the floor that generated the source event,
+or `None` if the floor had no archetype). This shows up in
+`whisperer.dump()` and in the JSON written by `--dump-whispers`.
+
+### ANSI colour is opt-in
+
+`render_frame(game)` and `render_frame_with_whispers(game)` continue to
+emit **zero** ESC characters by default; the Sprint-2 / Sprint-7 /
+Sprint-10 byte-determinism contracts are intact. To get ANSI-coloured
+output, callers use the new helper:
+
+```python
+from whisperdeep.render import colorize_frame
+print(colorize_frame(game))
+```
+
+`colorize_frame` reads the floor's archetype palette and emits a 256-
+color (`\x1b[38;5;<n>m`) or truecolor (`\x1b[38;2;<r>;<g>;<b>m`)
+foreground sequence per cell, resetting after each. Stripping the ANSI
+sequences from `colorize_frame(game)` yields the same plain text as
+`render_frame(game)`. Full panel/colour wiring (curses, per-cell
+backgrounds, themed UI chrome) lands in **Sprint 12**.
+
+### Layering
+
+`whisperdeep/archetypes.py` imports only stdlib + `typing` +
+`whisperdeep.tiles` (for `TileKind`). It does NOT import
+`whisperdeep.llm`, `whisperdeep.render`, `whisperdeep.panel`,
+`whisperdeep.chronicle`, or `whisperdeep.whisperer`. World / Floor /
+Game / CLI may import it. `events.py` and `llm.py` do NOT import
+archetypes; they continue to receive the archetype id as a payload
+field on events, keeping the bus and adapter contracts unchanged.
+
+## Tests
+
+```sh
+pytest tests/
+```
+
+Sprint 7 ships `tests/test_sprint07.py` with 22 new test functions
+covering: event-bus pub/sub and ordering, the canonical event-type
+registry, event immutability, OfflineAdapter pool size and content,
+OfflineAdapter determinism, auto-whisper from the bus with full
+metadata, budget exhaustion forcing fallback, adapter-failure
+resilience, Game wiring of `run_started` / `descended`, real-provider
+adapters raising `LLMUnavailable` without an API key, end-to-end
+whisper-dump determinism across processes, CLI flag plumbing, the
+"frame is byte-identical modulo banner" invariant, the per-turn whisper
+throttle, and layering / no-network grep checks. The full repository
+suite passes with **no API keys set and no network access**.
+
+## Project layout
+
+```
+whisperdeep/
+  __init__.py
+  __main__.py             # `python -m whisperdeep`
+  cli.py                  # argument parsing and entry points
+  tiles.py                # Tile + TileKind, glyph legend
+  floor.py                # Floor (2D grid) and Room
+  generator.py            # DungeonGenerator — rooms and corridors
+  world.py                # multi-floor World
+  entity.py               # Entity / Player
+  game.py                 # Game state, movement, descend/ascend, event publishing
+  render.py               # ASCII frame renderer
+  events.py               # EventBus + Event + EVENT_TYPES (Sprint 7)
+  llm.py                  # LLMAdapter ABC + Null/Offline/Anthropic/OpenAI (Sprint 7)
+  whisperer.py            # Whisperer service (Sprint 7)
+  adapter_factory.py      # CLI flag → adapter (Sprint 7)
+  prose_pool.json         # fallback prose pool, >= 8 entries per event type
+tests/
+  test_generator.py       # generator unit tests
+  test_game.py            # game/movement/CLI tests
+  test_sprint01.py        # sprint 1 explicit contract
+  test_sprint07.py        # sprint 7 contract: bus, adapters, whisperer, CLI
+```

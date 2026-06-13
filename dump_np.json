@@ -1,0 +1,22 @@
+[
+  {
+    "adapter_name": "offline",
+    "error_reason": null,
+    "fallback": false,
+    "source_event_type": "run_started",
+    "source_floor": 0,
+    "source_turn": 0,
+    "text": "The threshold accepts you.",
+    "tokens": 8
+  },
+  {
+    "adapter_name": "offline",
+    "error_reason": null,
+    "fallback": false,
+    "source_event_type": "room_entered",
+    "source_floor": 0,
+    "source_turn": 0,
+    "text": "Damp stone, cold air, and something that might once have been laughter.",
+    "tokens": 8
+  }
+]

@@ -1,0 +1,381 @@
+{
+  "sprintNumber": 8,
+  "sprintName": "Whispers in Play",
+  "theme": "Whisperer panel UI in the rendered frame, monster/item naming on first sight, atmospheric room prose",
+  "features": ["F7"],
+  "dependsOn": [7],
+  "summary": "Sprint 7 delivered the Whisperer plumbing (event bus, LLM adapters, fallback prose pool, budget guardrails, deterministic offline whispers, Game wiring for run_started + descended). Sprint 8 makes the Whisperer VISIBLE: it adds an in-frame whisper panel to the rendered output so players actually read what the Whisperer is saying. It also introduces two semantic event sources that wire into the existing bus: (1) first-sight naming — the first time the player encounters a particular monster KIND or item KIND, the Whisperer mints a short evocative name and that name is reused for the rest of the run; and (2) atmospheric room prose — when the player enters a previously-unseen room, the Whisperer emits a 1-2 sentence room description. The dungeon glyph grid itself is unchanged; the panel sits beside or below the grid and is composited into the frame string by the renderer. Sprint 8 is still text-only; no curses TUI, no color codes, no input changes. Determinism, layering, and the no-network test posture established in Sprint 7 are preserved. Items and monsters do not need a real Sprint-4/5 implementation in tree to satisfy this sprint: a minimal kind-registry sufficient for naming-on-sight is added in this sprint, and tests publish first-sight events to the bus directly where higher-fidelity world hooks are not yet present.",
+  "assumptions": [
+    "Sprint 7 is merged in tree: whisperdeep/events.py, whisperdeep/llm.py, whisperdeep/whisperer.py, whisperdeep/adapter_factory.py, whisperdeep/game.py with whisperer wiring, whisperdeep/cli.py with --whisperer/--no-whisperer/--dump-whispers, and the prose_pool.json fallback resource all exist and pass their Sprint-7 evaluation. handoff/eval-report-07 confirm 22/22 Sprint-7 criteria PASS and 66/66 pytest green with no API keys.",
+    "Sprints 3, 4, 5, 6 are NOT merged in tree (handoff lists completedSprints=[1,2]; only Sprint 7 was retro-applied for plumbing). Sprint 8 must therefore NOT depend on Sprint-4 inventory or Sprint-5 monster spawn machinery existing. Where naming-on-sight needs a 'kind' to name, Sprint 8 adds a minimal kind registry (a small JSON or Python data file plus a tiny first_sight publisher) and wires it through the existing event bus. Tests publish first-sight events directly to the bus where higher-fidelity hooks do not yet exist.",
+    "The renderer (whisperdeep/render.py) currently produces a multiline string of the dungeon grid with the player overlaid. Sprint 8 extends rendering by ADDING a panel composition layer on top of render_frame (e.g., render_frame_with_whispers, or an option flag) WITHOUT changing the underlying dungeon glyph rows for the same seed. This protects the Sprint-2 byte-level seed determinism contract.",
+    "Whisper panel is text only. No color codes, no curses, no TUI library. The panel is plain ASCII with optional box-drawing characters (e.g., '|' or '│' on the left edge). Lines are wrapped to a documented panel width (e.g., 30 columns) so output remains stable across terminals.",
+    "First-sight naming is per-RUN, not cross-run. The Whisperer maintains an in-memory map of {kind_id: name} for the duration of a Game; the same kind seen twice in one run uses the same name; a new run mints fresh names. Cross-run persistence of names is Sprint 9/10 territory and is OUT OF SCOPE.",
+    "Atmospheric room prose is keyed by (floor_index, room_id) and emitted at most once per room per run. Re-entering a previously-described room does NOT trigger a new whisper.",
+    "All new event types added in this sprint (e.g., first_sight, room_entered) extend the canonical EVENT_TYPES set from Sprint 7 in a backward-compatible way: existing seven names remain present, the new names are appended. The OfflineAdapter pool gains >= 8 entries for each newly-canonical event type so determinism and fallback work without a real LLM.",
+    "Determinism: with --seed N --headless and the offline adapter, the rendered frame (panel + grid) is byte-identical across separate processes for the same seed. The first-sight naming and the room-prose ordering are reproducible from the seed alone.",
+    "Pytest remains the test runner; tests live under tests/. Tests must NOT make network calls. The Sprint-7 layering invariants (Game -> bus only; Whisperer -> bus + adapter-ABC; concrete adapters via factory) are preserved."
+  ],
+  "criteria": [
+    {
+      "id": "C1",
+      "category": "code-structure",
+      "description": "A whisper-panel rendering surface exists and is importable. Either (a) whisperdeep/render.py exposes a new public function like `render_panel(whispers: Iterable[Whisper], *, width: int = 30, height: int = 12) -> str` that returns a multiline string of fixed dimensions, OR (b) a new module like `whisperdeep/panel.py` exposes the equivalent. The function takes Whisper-like records and returns a deterministic ASCII block.",
+      "testMethod": "static",
+      "testSteps": [
+        "Run `python -c \"from whisperdeep.render import render_panel\"` OR `python -c \"from whisperdeep.panel import render_panel\"` and confirm exit code 0.",
+        "Inspect the function signature: it MUST accept an iterable/list of Whisper records (or dicts with at least a 'text' key) and return a str.",
+        "Verify the function accepts a `width` (or equivalent) keyword argument with a documented default."
+      ],
+      "threshold": "render_panel (or named equivalent) is importable, takes whispers, and returns a string."
+    },
+    {
+      "id": "C2",
+      "category": "feature",
+      "description": "The whisper panel renders the most recent N whispers (newest at the bottom or newest at the top — either is acceptable as long as it is documented and consistent), wraps each whisper to the panel width, prefixes/visually separates whispers from each other (e.g., a leading marker like `> ` or a blank-line separator or a box-drawing rule), and pads the panel to a fixed width and height so the dungeon frame next to it is not jittered.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Construct a list of 5 Whisper records with texts of varying lengths (a 5-word, a 30-word, and three 10-word texts).",
+        "Call render_panel(whispers, width=30, height=12) (or the documented signature).",
+        "Split the result on '\\n'; assert every line has length == 30 (panel is left-padded or right-padded to exactly the panel width).",
+        "Assert the number of lines == 12 (panel is exactly height tall, even if whispers are fewer).",
+        "Verify the long 30-word whisper is wrapped onto multiple lines AND no line exceeds width=30.",
+        "Verify each whisper's text content (after wrapping and separator removal) appears at least once in the panel string.",
+        "Verify two adjacent whispers are visually distinguishable (a separator marker, blank line, or per-whisper prefix is present)."
+      ],
+      "threshold": "Panel is fixed-width rectangle; wraps long whispers; visually separates entries; pads to fixed height."
+    },
+    {
+      "id": "C3",
+      "category": "feature",
+      "description": "When the panel must show more whispers than fit, OLDER whispers are dropped from the visible window (a sliding window). The whisper log itself (game.whisperer.whispers) is NOT mutated — only the rendered view is windowed.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Build a list of 50 short whispers labeled 'w0' .. 'w49'.",
+        "Call render_panel(whispers, width=30, height=12) (or the documented signature) and capture the output string.",
+        "Assert the most-recent whisper text 'w49' appears in the panel.",
+        "Assert the oldest whisper text 'w0' does NOT appear in the panel.",
+        "Assert the visible whisper texts are contiguous from some index k to 49 (no gaps).",
+        "Verify the original list of 50 whispers is unchanged (length still 50, identity of element 0 still 'w0')."
+      ],
+      "threshold": "Panel windows the most-recent whispers; original whisper log is not mutated."
+    },
+    {
+      "id": "C4",
+      "category": "feature",
+      "description": "A composite frame renderer composes the dungeon grid AND the whisper panel into a single multiline string for headless display. Either (a) `render_frame_with_whispers(game)` (or named equivalent) is exposed in whisperdeep/render.py, OR (b) `render_frame(game, *, with_panel=True)` accepts an opt-in flag. The composite places the panel either to the right of the grid (each line has `<grid_row>  <panel_row>`) or directly below the grid (panel rows after a blank line). The choice is documented; tests verify the documented choice.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Construct `Game.from_seed(seed=1, whisperer=True)` (Sprint 7 wiring puts at least a 'run_started' whisper into the log).",
+        "Call the composite renderer (the documented function or flag).",
+        "Split the output on '\\n'.",
+        "Assert the dungeon glyph rows (those containing '#', '.', or '@') are all present, in order, and unchanged from `render_frame(game)`'s glyph content for the same seed.",
+        "Assert the panel content (at least one whisper text from `game.whisperer.whispers`) appears in the composite output.",
+        "Verify the composite layout matches the documented choice (right-of-grid OR below-grid) — e.g., if right-of-grid, every line that contains a glyph also contains the panel separator or panel content; if below-grid, the panel block follows the grid block."
+      ],
+      "threshold": "Composite renderer combines grid + panel; documented layout; whisper text is visible; grid content unchanged."
+    },
+    {
+      "id": "C5",
+      "category": "feature",
+      "description": "The CLI default headless run shows the whisper panel. Running `python -m whisperdeep --seed 1 --headless` prints the composite frame (grid + panel) to stdout and includes at least one whisper text drawn from the offline pool (e.g., the run_started whisper). Running `python -m whisperdeep --seed 1 --headless --no-whisperer` prints ONLY the dungeon grid (no panel, no whisper banner) — byte-equivalent to the Sprint-2 frame for the same seed.",
+      "testMethod": "integration",
+      "testSteps": [
+        "Run `python -m whisperdeep --seed 1 --headless` and capture stdout as composite_out (env: API keys cleared).",
+        "Run `python -m whisperdeep --seed 1 --headless --no-whisperer` and capture stdout as grid_only_out.",
+        "Assert composite_out exit code 0 and grid_only_out exit code 0.",
+        "Assert grid_only_out contains the dungeon glyphs ('#', '.', '@') and contains NO panel separator marker (no '|' panel-edge character if that is the chosen marker; no '>' whisper-prefix lines that don't correspond to downstairs).",
+        "Assert composite_out contains all the dungeon glyph rows that grid_only_out contains (the grid is preserved; no glyphs were repurposed).",
+        "Assert composite_out contains at least one substring drawn from the offline prose pool (i.e., a real whisper). Hint: load whisperdeep/prose_pool.json's 'run_started' entries and assert at least one of them appears verbatim in composite_out."
+      ],
+      "threshold": "Default --headless prints grid + panel with at least one real whisper; --no-whisperer prints grid only; both exit 0."
+    },
+    {
+      "id": "C6",
+      "category": "regression",
+      "description": "Sprint-7's plumbing-only invariant is preserved at the API level: the dungeon glyph grid produced by `render_frame(game)` (the original Sprint-2 function) is byte-identical to what it produced before Sprint 8 for the same seed. Sprint 8 must NOT modify the grid string; it must only ADD a panel layer in a NEW function or via an opt-in flag.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Construct `Game.from_seed(seed=1, whisperer=True)` and capture A = render_frame(game) (Sprint-2 signature, default arguments).",
+        "Construct `Game.from_seed(seed=1, whisperer=False)` and capture B = render_frame(game).",
+        "Assert A == B byte-for-byte (the whisperer being on or off must NOT affect the grid produced by `render_frame`).",
+        "Verify A contains '#', '.', '@' (Sprint-1/2 glyph contract).",
+        "If `render_frame` accepts a `with_panel` flag, also call `render_frame(game, with_panel=False)` and assert it equals A; only `with_panel=True` should produce the composite."
+      ],
+      "threshold": "Original render_frame(game) is byte-identical with whisperer on vs off; no grid mutation."
+    },
+    {
+      "id": "C7",
+      "category": "feature",
+      "description": "First-sight monster/item naming: a `first_sight` event type is added to the canonical EVENT_TYPES set. When fired with a payload like {'kind': 'goblin', 'category': 'monster'} (or 'item'), the Whisperer mints a name (a string drawn from the offline pool or LLM) and stores it. Re-firing first_sight for the SAME kind on the same run does NOT mint a new name — the existing name is reused (idempotent). The name registry is exposed (e.g., `game.whisperer.names` or `whisperer.get_name(kind)`).",
+      "testMethod": "unit",
+      "testSteps": [
+        "Import EVENT_TYPES (or EventType enum) from whisperdeep.events; assert 'first_sight' is present.",
+        "Construct an EventBus and a Whisperer with OfflineAdapter(seed=1).",
+        "Publish an Event(type='first_sight', payload={'kind': 'goblin', 'category': 'monster'}, turn=1, floor=0).",
+        "Assert the whisperer produced a whisper whose text is non-empty.",
+        "Read the name registry (`whisperer.names['goblin']` OR `whisperer.get_name('goblin')`) and capture name1.",
+        "Publish a SECOND Event(type='first_sight', payload={'kind': 'goblin', 'category': 'monster'}, turn=2, floor=0).",
+        "Assert the registered name is still name1 (no second mint), even though a new whisper may or may not be produced.",
+        "Publish first_sight for kind='ghoul'; assert a second name (name2) is registered, name2 != name1 (or, if the pool only has one entry, document and accept identical strings — but the pool MUST be large enough to make collisions unlikely)."
+      ],
+      "threshold": "first_sight is canonical; same kind -> same name; different kinds -> different names; idempotent."
+    },
+    {
+      "id": "C8",
+      "category": "feature",
+      "description": "Atmospheric room-entered prose: a `room_entered` event type is added to the canonical EVENT_TYPES set. When fired with a payload like {'floor': i, 'room_id': r}, the Whisperer emits a 1-2 sentence whisper. Re-entering the SAME (floor, room_id) does NOT produce a second whisper for that room (per-room dedupe within a run).",
+      "testMethod": "unit",
+      "testSteps": [
+        "Assert 'room_entered' is in EVENT_TYPES (or EventType enum).",
+        "Construct an EventBus and a Whisperer with OfflineAdapter(seed=2).",
+        "Publish an Event(type='room_entered', payload={'floor': 0, 'room_id': 0}, turn=1, floor=0).",
+        "Assert one new whisper appeared whose source_event_type == 'room_entered'.",
+        "Publish a SECOND Event(type='room_entered', payload={'floor': 0, 'room_id': 0}, turn=2, floor=0) (same room).",
+        "Assert NO new whisper was produced for that room (whisper count unchanged for source_event_type == 'room_entered').",
+        "Publish Event(type='room_entered', payload={'floor': 0, 'room_id': 1}, turn=3, floor=0) (different room).",
+        "Assert ONE more room_entered whisper appears (count went from 1 -> 2).",
+        "Publish Event(type='room_entered', payload={'floor': 1, 'room_id': 0}, turn=4, floor=1) (same room_id, different floor).",
+        "Assert ONE more room_entered whisper appears (count 2 -> 3): dedupe is keyed on the (floor, room_id) pair."
+      ],
+      "threshold": "room_entered is canonical; per-(floor, room_id) dedupe within a run; new rooms always produce a whisper."
+    },
+    {
+      "id": "C9",
+      "category": "feature",
+      "description": "The OfflineAdapter prose pool is extended to cover the new event types: at least 8 distinct entries each for 'first_sight' and 'room_entered'. Total distinct entries across all canonical event types is now >= 72 (Sprint 7 had >= 56; Sprint 8 adds >= 16). The Sprint-7 entries are preserved unchanged (no regression on the seven original types).",
+      "testMethod": "unit",
+      "testSteps": [
+        "Locate the prose-pool resource (whisperdeep/prose_pool.json or equivalent).",
+        "Load it and assert pool['first_sight'] has >= 8 distinct non-empty string entries.",
+        "Assert pool['room_entered'] has >= 8 distinct non-empty string entries.",
+        "Assert each of the seven original Sprint-7 event types still has >= 8 distinct entries (no regression).",
+        "Assert the total count of distinct entries across all canonical event types is >= 72."
+      ],
+      "threshold": ">= 8 entries per new event type; >= 72 total; Sprint-7 pool not regressed."
+    },
+    {
+      "id": "C10",
+      "category": "feature",
+      "description": "First-sight whispers SUBSTITUTE the minted name into the prose. A first_sight pool entry contains a placeholder (e.g., `{name}` or `${name}` or a sentinel string) that is replaced with the freshly minted name in the produced whisper text. Tests verify that the rendered whisper contains the registered name string, not the raw placeholder.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Inspect a sample first_sight pool entry (or document the templating convention in code/docs).",
+        "Construct a Whisperer with OfflineAdapter(seed=3).",
+        "Publish first_sight for kind='goblin'.",
+        "Read the produced whisper.text and the registered name `whisperer.get_name('goblin')`.",
+        "Assert whisper.text CONTAINS the registered name string verbatim.",
+        "Assert whisper.text does NOT contain a literal placeholder substring (e.g., '{name}' or '${name}') — substitution actually happened.",
+        "Repeat for kind='healing potion' (category='item') and verify the same substitution behavior."
+      ],
+      "threshold": "first_sight whispers contain the minted name and not the raw template placeholder."
+    },
+    {
+      "id": "C11",
+      "category": "integration",
+      "description": "The Game publishes room_entered events when the player enters a new room. Either (a) Game.try_move detects room transitions and publishes room_entered, OR (b) a helper hook is added that is called by the rendering loop / explicit transition logic. At minimum, on Game.from_seed (whisperer=True), the room containing the spawn point produces a room_entered event for floor 0, and Game.descend produces a room_entered event for the room containing the upstairs landing on the new floor.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Construct `Game.from_seed(seed=1, whisperer=True)`.",
+        "Inspect game.whisperer.whispers; assert at least one whisper has source_event_type == 'room_entered' for floor 0 (the spawn room).",
+        "Place the player on the downstairs of floor 0 (use game.teleport(...) with the floor's downstairs_pos).",
+        "Call game.descend(); assert a 'descended' whisper appears (Sprint 7 contract preserved).",
+        "Assert ALSO a 'room_entered' whisper appears for floor 1's landing room (source_floor == 1).",
+        "Move the player out of the landing room and into a different room on the same floor (use teleport for test simplicity; the sprint may also implement room-detection on movement).",
+        "Assert another 'room_entered' whisper appears for the new room.",
+        "Move the player BACK to the landing room.",
+        "Assert NO new room_entered whisper is produced (per-(floor, room_id) dedupe from C8 holds in the integration path)."
+      ],
+      "threshold": "Game lifecycle publishes room_entered for spawn room and on descent; movement-driven room transitions publish room_entered with dedupe honored."
+    },
+    {
+      "id": "C12",
+      "category": "integration",
+      "description": "First-sight integration: a documented hook on the Game (e.g., `game.observe_kind(kind, category)` OR automatic publication when an entity is rendered for the first time) publishes a `first_sight` event for any new kind. Calling the hook twice for the same kind is idempotent (no duplicate first_sight, no second name mint). Even without a real Sprint-5 monster spawn system, the hook is callable directly by tests and by future sprints.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Construct `Game.from_seed(seed=1, whisperer=True)`.",
+        "Call `game.observe_kind('skitterer', category='monster')` (or the documented Sprint-8 hook).",
+        "Assert one new first_sight whisper appeared and `game.whisperer.get_name('skitterer')` returns a non-empty string.",
+        "Call `game.observe_kind('skitterer', category='monster')` again.",
+        "Assert NO new first_sight whisper was produced (idempotent at the Game layer).",
+        "Call `game.observe_kind('rust ring', category='item')`.",
+        "Assert one more first_sight whisper appears and `game.whisperer.get_name('rust ring')` is registered.",
+        "Verify the hook does NOT raise when called with `whisperer=False` Game (it is a no-op or a documented safe error)."
+      ],
+      "threshold": "Game.observe_kind (or named equivalent) exists, integrates with first_sight, is idempotent, and is safe with whisperer disabled."
+    },
+    {
+      "id": "C13",
+      "category": "determinism",
+      "description": "End-to-end whisper-and-frame determinism: with `--seed N --headless`, the FULL stdout (banner + composite frame, including the panel content and minted names) is byte-identical across two separate processes for the same seed. Different seeds produce a stdout that differs in at least one whisper or one minted name.",
+      "testMethod": "integration",
+      "testSteps": [
+        "Run `python -m whisperdeep --seed 11 --headless` twice in separate processes; capture stdout as out_A and out_B.",
+        "Assert out_A == out_B byte-for-byte.",
+        "Run `python -m whisperdeep --seed 12 --headless`; capture as out_C.",
+        "Assert out_A != out_C (some whisper text or minted name differs because the seed differs).",
+        "Run `python -m whisperdeep --seed 11 --headless --dump-whispers w11.json` twice; load both files and assert their JSON arrays are element-wise equal (extending the Sprint-7 dump determinism contract).",
+        "Confirm each dumped whisper has source_event_type that is one of the canonical types including the new 'first_sight' / 'room_entered' if those fired during the run."
+      ],
+      "threshold": "Same seed -> identical stdout AND identical whisper dump; different seeds -> different stdout."
+    },
+    {
+      "id": "C14",
+      "category": "cli",
+      "description": "CLI flags exist to control the panel. At minimum: a `--no-panel` (or `--panel=off`) flag suppresses the whisper panel without disabling the Whisperer (so whispers still accumulate in the log and `--dump-whispers` still works); a `--panel-width N` (or equivalent) sets the panel width. The default behavior shows the panel. All new flags appear in `--help`.",
+      "testMethod": "integration",
+      "testSteps": [
+        "Run `python -m whisperdeep --help` and verify the help text mentions the new panel flag(s) (e.g., '--no-panel', '--panel-width').",
+        "Run `python -m whisperdeep --seed 1 --headless --no-panel` and capture stdout as no_panel_out; assert exit code 0.",
+        "Assert no_panel_out does NOT contain prose-pool entries (the panel is suppressed) but still exits cleanly.",
+        "Assert running with --no-panel and --dump-whispers WHISPER_FILE writes a non-empty whisper array to WHISPER_FILE (whispers still produced even though hidden).",
+        "Run `python -m whisperdeep --seed 1 --headless --panel-width 20`; assert exit 0 and that any panel line in stdout has length <= 20 characters (modulo the grid columns; if right-of-grid layout, parse panel columns specifically).",
+        "Verify `--no-whisperer` continues to suppress both panel and whispers (Sprint-7 behavior preserved)."
+      ],
+      "threshold": "--no-panel and --panel-width work; both are documented in --help; --no-whisperer remains the strongest off switch."
+    },
+    {
+      "id": "C15",
+      "category": "behavior",
+      "description": "The whisper panel never crashes the renderer. Edge cases must be handled gracefully: zero whispers (panel renders an empty-but-correctly-sized block), one whisper longer than 5x panel width (wraps onto multiple lines, never raises), unicode whispers (handled without UnicodeEncodeError on stdout), and a panel height of 1 (only the most recent whisper's first line shows).",
+      "testMethod": "unit",
+      "testSteps": [
+        "Call render_panel([], width=30, height=12); assert returns a string of 12 lines each of width 30 (blank but correctly sized).",
+        "Build a Whisper whose text is 'word ' * 200 (a 1000-character string); call render_panel([w], width=30, height=12).",
+        "Assert NO exception is raised, every line is exactly 30 chars, and the visible content is the FIRST chunk that fits in 12 lines.",
+        "Build a Whisper with non-ASCII text (e.g., 'the floor remembers — the dark exhales'); call render_panel([w], width=30, height=4).",
+        "Assert NO UnicodeError is raised and the dash character appears in the output.",
+        "Call render_panel([w1, w2, w3], width=30, height=1); assert exactly 1 line of length 30 is returned.",
+        "Verify render_panel does NOT mutate the input list (length and identity unchanged after the call)."
+      ],
+      "threshold": "Panel handles 0/1/many whispers, long text, unicode, and tiny dimensions without raising; never mutates inputs."
+    },
+    {
+      "id": "C16",
+      "category": "feature",
+      "description": "Whisper categories are visually distinguishable in the panel: at minimum, an atmospheric room_entered whisper and a first_sight whisper are presented with a per-category prefix or marker (e.g., room_entered prefix `~`, first_sight prefix `*`, generic prefix `>`). The convention is documented in code/docs and stable. Tests verify the marker is present for each category in the rendered panel string.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Construct three Whisper records: one with source_event_type='room_entered', one with source_event_type='first_sight', one with source_event_type='killed_monster'.",
+        "Call render_panel([w_room, w_sight, w_kill], width=40, height=12).",
+        "Assert the rendered panel contains the documented marker for each category at least once.",
+        "Verify the markers for the three categories are NOT all identical (they are distinguishable from each other)."
+      ],
+      "threshold": "Per-category prefix/marker is rendered and documented; categories are visually distinguishable."
+    },
+    {
+      "id": "C17",
+      "category": "feature",
+      "description": "Budget guardrail and per-turn throttle from Sprint 7 are still respected when the new event types fire. Publishing 50 first_sight events for distinct kinds within one turn does NOT bypass the per-turn cap; the Whisperer caps per-turn whispers at the documented small number, just as it does for the original seven types.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Construct a CountingAdapter that records call_count.",
+        "Construct a Whisperer with the CountingAdapter, per_turn_cap=3 (Sprint-7 default).",
+        "Publish 50 first_sight events for distinct kinds k0..k49, all on turn=1.",
+        "Assert CountingAdapter.call_count <= 3.",
+        "Assert the count of first_sight whispers in whisperer.whispers is <= 3.",
+        "Publish 50 room_entered events for distinct (floor=1, room_id=0..49) on turn=2.",
+        "Assert CountingAdapter.call_count for that turn alone is <= 3 (the per-turn cap is respected for room_entered too)."
+      ],
+      "threshold": "Per-turn cap is honored for the new event types; the budget guardrail behaves as in Sprint 7."
+    },
+    {
+      "id": "C18",
+      "category": "regression",
+      "description": "Sprint 7 contract is fully preserved. All 22 Sprint-7 criteria continue to hold: event bus, EVENT_TYPES contains the original seven names (NOW PLUS the new ones), adapter ABC + Null + Offline + real-provider stubs, prose pool >= 8 entries per ORIGINAL event type, OfflineAdapter determinism, Whisperer auto-production, budget exhaustion fallback, adapter failure resilience, Game wiring of run_started + descended, no-network test posture, layering invariants, per-turn throttle.",
+      "testMethod": "integration",
+      "testSteps": [
+        "Run `pytest tests/test_sprint07.py` and verify ALL Sprint-7 tests pass unchanged.",
+        "Verify EVENT_TYPES is a SUPERSET of the original seven: {run_started, run_ended, entered_room, killed_monster, low_hp, found_item, descended} ⊆ EVENT_TYPES.",
+        "Verify the prose pool's ORIGINAL seven event-type entries have not lost any items (counts >= the Sprint-7-evaluated counts).",
+        "Run `python -m whisperdeep --seed 1 --headless --no-whisperer` and confirm exit 0 with the Sprint-2 grid still byte-deterministic across two runs.",
+        "Run `python -m whisperdeep --seed 1 --headless --whisperer null` and confirm no whisper text appears in stdout (NullAdapter contract preserved)."
+      ],
+      "threshold": "All 22 Sprint-7 tests pass; original event types and pool entries preserved; null/no-whisperer behavior unchanged."
+    },
+    {
+      "id": "C19",
+      "category": "regression",
+      "description": "Sprints 1-2 functionality is preserved: `python -m whisperdeep --seed N --headless --no-whisperer` prints the Sprint-2 dungeon frame deterministically; the documented glyphs (`#`, `.`, `+`, `<`, `>`, `@`) all appear in a multi-floor traversal; existing pytest tests from prior sprints all pass.",
+      "testMethod": "integration",
+      "testSteps": [
+        "Run `pytest tests/test_sprint01.py tests/test_generator.py tests/test_game.py` and verify the full prior test suite passes.",
+        "Run `python -m whisperdeep --seed 1 --headless --no-whisperer` twice; verify byte-identical stdout (Sprint-2 determinism).",
+        "Run with two different seeds and verify the grids differ.",
+        "Verify the canonical glyphs (`#`, `.`, `+`, `>`, `@`) appear in a `--seed 1 --headless --no-whisperer` frame; `<` is acceptable to be absent on floor 0 (pre-existing Sprint-1/2 behavior)."
+      ],
+      "threshold": "All prior sprint tests pass; Sprint-2 determinism + glyph contract preserved."
+    },
+    {
+      "id": "C20",
+      "category": "tests",
+      "description": "Automated test suite includes >= 12 NEW tests targeting Sprint 8 functionality. They cover at minimum: render_panel signature (C1), panel fixed-dimension wrapping (C2), sliding window of recent whispers (C3), composite render_frame_with_whispers (C4), CLI default panel + --no-whisperer + --no-panel (C5/C14), render_frame unchanged with whisperer on/off (C6), first_sight idempotent naming (C7), room_entered per-room dedupe (C8), pool extension (C9), name template substitution (C10), Game observe_kind hook (C12), end-to-end seed determinism (C13), edge-case panel rendering (C15), per-turn cap honored for new event types (C17). All tests pass with no API keys and no network.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Locate test files under `tests/` whose names reference 'sprint08', 'panel', 'first_sight', 'room_entered', or 'naming'.",
+        "Count distinct `test_*` function definitions (not parameterized invocations) in those files; assert the count is >= 12.",
+        "Verify each scenario above is covered by at least one named test (grep test names + assertion content).",
+        "Run `pytest tests/` with no API keys set and assert all tests pass.",
+        "Verify no Sprint-8 test imports `requests`, `httpx`, `urllib.request`, `anthropic`, or `openai` at module top-level (extending the Sprint-7 no-network posture)."
+      ],
+      "threshold": ">= 12 distinct Sprint-8 test functions, all passing, covering each listed scenario; no network calls."
+    },
+    {
+      "id": "C21",
+      "category": "documentation",
+      "description": "Documentation (README.md and/or docs/) describes Sprint 8: the whisper panel layout (right-of-grid or below-grid; documented choice), panel width/height defaults and CLI flags (--no-panel, --panel-width), the two new canonical event types (first_sight, room_entered) and when they fire, the per-category visual marker convention from C16, the first-sight name-template substitution convention from C10, and the per-(floor, room_id) dedupe rule from C8. The Sprint-7 docs are updated to reflect that whispers are NOW visible in-game (the 'plumbing-only' note from Sprint 7 is no longer accurate after Sprint 8).",
+      "testMethod": "static",
+      "testSteps": [
+        "Open README.md and any sprint-relevant docs in `docs/`.",
+        "Verify a section describes the panel layout choice (right-of-grid vs below-grid) and width/height defaults.",
+        "Verify a section documents `--no-panel` and `--panel-width` (or the chosen names).",
+        "Verify a section enumerates the two new event types ('first_sight', 'room_entered'), with payload schemas.",
+        "Verify a section describes the per-category marker convention (room/sight/generic prefixes).",
+        "Verify a section describes the first_sight name template (placeholder syntax) and the per-(floor, room_id) dedupe rule.",
+        "Verify the prior 'whispers are NOT yet rendered' statement from Sprint 7 docs is updated/superseded."
+      ],
+      "threshold": "All six documentation topics are present; Sprint-7 plumbing-only note is superseded."
+    },
+    {
+      "id": "C22",
+      "category": "code-quality",
+      "description": "Layering invariants from Sprint 7 are preserved AND the new Sprint-8 modules respect them. The render module imports from whisperdeep.whisperer ONLY for type hints (Whisper dataclass) — it does NOT import from whisperdeep.llm or whisperdeep.events directly. The Game module continues to depend only on the events bus and a factory; the panel renderer is wired in by the CLI / a renderer factory, not by Game. Concrete real-provider adapters are still constructed only by the adapter factory.",
+      "testMethod": "static",
+      "testSteps": [
+        "Open whisperdeep/render.py (or whisperdeep/panel.py, if introduced) and verify (via grep or AST) it imports at most: stdlib, typing, the Whisper dataclass from whisperdeep.whisperer (or a Protocol/structural type), Game from whisperdeep.game (already true), Floor from whisperdeep.floor.",
+        "Verify the render/panel module does NOT import from whisperdeep.llm directly (it must not know about adapters).",
+        "Verify whisperdeep/game.py does NOT import the panel renderer (Game stays render-agnostic; the CLI calls the renderer).",
+        "Verify whisperdeep/events.py and whisperdeep/llm.py have NOT acquired imports from whisperdeep.render or whisperdeep.panel.",
+        "Verify EVENT_TYPES gained 'first_sight' and 'room_entered' WITHOUT removing or renaming any of the original seven names (additive change)."
+      ],
+      "threshold": "Layering invariants hold: render -> whisperer (Whisper type) + floor/game; panel never imports llm; game never imports panel; EVENT_TYPES change is additive."
+    }
+  ],
+  "outOfScope": [
+    "Director-mode procgen nudges — the Whisperer must NOT mutate dungeon generation in this sprint (Sprint 9).",
+    "Cross-run meta-memory or persistence of minted names beyond the current run (Sprint 9/10).",
+    "End-of-run Markdown chronicle / death legends (Sprint 10).",
+    "Themed dungeon archetypes and color palette swaps for the panel (Sprint 11).",
+    "Curses / TUI / color codes / ANSI styling. The panel is plain ASCII (with optional box-drawing characters).",
+    "Rebindable keys, help overlay, ambient audio, leaderboard (Sprint 12).",
+    "Streaming LLM responses; the adapter contract remains single-shot prompt -> single-shot completion.",
+    "Caching previous LLM responses to disk or across runs.",
+    "Real network calls in CI / automated tests — provider adapters remain stubbed and gated.",
+    "Sprint-3/4/5/6 features (FOV, combat, items, inventory, full monster AI, run lifecycle / save-load). These remain unimplemented in tree; Sprint 8 publishes events only via the hooks already present (Game.from_seed spawn room, Game.descend) plus the new Game.observe_kind hook for first sight, and accepts that movement-driven room transitions may rely on a minimal room-detection helper added in this sprint rather than a full FOV system.",
+    "Inventory-driven first_sight: players cannot yet pick up items, so first-sight for items is exercised via Game.observe_kind, not a full pickup flow."
+  ],
+  "regressionSprints": [1, 2, 7],
+  "deliverables": [
+    "A panel renderer (render_panel in whisperdeep/render.py OR a new whisperdeep/panel.py) producing a fixed-width/height ASCII block from a list of Whisper records, with documented wrapping and per-category markers.",
+    "A composite renderer (render_frame_with_whispers in whisperdeep/render.py OR a render_frame(game, with_panel=True) opt-in flag) that combines grid + panel without modifying the original render_frame output.",
+    "Two new canonical event types ('first_sight', 'room_entered') added to whisperdeep/events.EVENT_TYPES / EventType in a backward-compatible way.",
+    "Whisperer extensions: a per-run name registry for first_sight (idempotent on repeat kinds), a per-(floor, room_id) dedupe set for room_entered, and template substitution that replaces a documented placeholder in first_sight pool entries with the minted name.",
+    "Prose pool extension: >= 8 distinct entries each for 'first_sight' and 'room_entered', preserving all Sprint-7 entries.",
+    "Game integration: a Game.observe_kind(kind, category) hook that publishes first_sight (idempotent), and Game machinery that publishes room_entered for the spawn room, the descent landing room, and (where movement-driven detection is introduced) for new rooms entered by movement, all with per-(floor, room_id) dedupe.",
+    "CLI flags: --no-panel (suppress panel without disabling whisperer), --panel-width N. Both documented in --help. Default behavior shows the panel.",
+    ">= 12 NEW pytest tests under tests/ covering the scenarios listed in C20, all passing with no API keys and no network access.",
+    "README.md / docs updates covering: the panel layout choice, the new CLI flags, the two new event types and their payloads, the per-category marker convention, the first_sight name template, the per-(floor, room_id) dedupe rule, and a note that Sprint 7's 'plumbing-only' caveat is superseded by Sprint 8.",
+    "Commits following `harness(sprint-08): description [C-ID]` convention."
+  ]
+}

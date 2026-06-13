@@ -1,0 +1,81 @@
+{
+  "fixId": "fix-001",
+  "issueNumber": 15,
+  "title": "Add --whisperer-model CLI flag",
+  "description": "Thread the model name from the CLI through the adapter factory so users can select which LLM model the Whisperer uses. Default is claude-haiku-4-5.",
+  "files": [
+    "whisperdeep/adapter_factory.py",
+    "whisperdeep/game.py",
+    "whisperdeep/cli.py"
+  ],
+  "criteria": [
+    {
+      "id": "FX1",
+      "category": "api",
+      "description": "make_adapter() in whisperdeep/adapter_factory.py accepts an optional model parameter and passes it to AnthropicAdapter and OpenAIAdapter when provided.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Import make_adapter and AnthropicAdapter/OpenAIAdapter.",
+        "Call make_adapter('anthropic', model='claude-haiku-4-5') — monkeypatching ANTHROPIC_API_KEY to a dummy value so construction doesn't raise.",
+        "Assert the returned adapter's .model attribute equals 'claude-haiku-4-5'.",
+        "Call make_adapter('anthropic') with no model argument and assert .model is not None (uses adapter's own default)."
+      ],
+      "threshold": "model is threaded through when provided; adapter default used when omitted."
+    },
+    {
+      "id": "FX2",
+      "category": "api",
+      "description": "Game.from_seed() accepts an optional model parameter and passes it to make_adapter().",
+      "testMethod": "unit",
+      "testSteps": [
+        "Construct Game.from_seed(seed=1, whisperer=True, adapter='offline') — offline adapter ignores model, no error.",
+        "Inspect the Game.from_seed signature; confirm it has a model parameter.",
+        "Call with model='claude-haiku-4-5' and adapter='offline' — should construct without error."
+      ],
+      "threshold": "Game.from_seed accepts model kwarg without error."
+    },
+    {
+      "id": "FX3",
+      "category": "cli",
+      "description": "--whisperer-model flag exists in the CLI with default 'claude-haiku-4-5' and appears in --help output.",
+      "testMethod": "integration",
+      "testSteps": [
+        "Run: python -m whisperdeep --help and capture stdout.",
+        "Assert the string 'whisperer-model' appears in stdout.",
+        "Assert the string 'claude-haiku-4-5' appears in stdout (default shown in help)."
+      ],
+      "threshold": "--whisperer-model is documented in --help with default claude-haiku-4-5."
+    },
+    {
+      "id": "FX4",
+      "category": "cli",
+      "description": "--whisperer-model value is threaded into the adapter. When --whisperer offline --whisperer-model claude-haiku-4-5 is used, the game runs without error.",
+      "testMethod": "integration",
+      "testSteps": [
+        "Run: python -m whisperdeep --seed 1 --headless --whisperer offline --whisperer-model claude-haiku-4-5",
+        "Assert exit code 0."
+      ],
+      "threshold": "Run completes with exit code 0."
+    },
+    {
+      "id": "FX5",
+      "category": "regression",
+      "description": "Existing headless run without --whisperer-model still works (backward compatible).",
+      "testMethod": "integration",
+      "testSteps": [
+        "Run: python -m whisperdeep --seed 1 --headless",
+        "Assert exit code 0.",
+        "Run: python -m whisperdeep --seed 1 --headless --no-whisperer",
+        "Assert exit code 0.",
+        "Run: pytest tests/ and assert all tests pass."
+      ],
+      "threshold": "All prior tests pass; headless runs succeed without the new flag."
+    }
+  ],
+  "regressionSprints": [7, 8],
+  "outOfScope": [
+    "Changing AnthropicAdapter or OpenAIAdapter internals beyond accepting the model parameter (they already do).",
+    "Adding model validation (unknown model names are passed through; the adapter/API handles errors).",
+    "Changing OfflineAdapter or NullAdapter (model param is irrelevant for them)."
+  ]
+}

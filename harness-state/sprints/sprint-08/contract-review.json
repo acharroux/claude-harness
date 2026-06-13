@@ -1,0 +1,41 @@
+{
+  "decision": "accepted",
+  "sprintNumber": 8,
+  "reviewedAt": "2026-06-12",
+  "summary": "The contract proposal is comprehensive, testable, and well-aligned with the Sprint 8 plan (panel UI, first-sight naming, atmospheric room prose). 22 criteria with concrete test steps and measurable thresholds. Regression sprints [1, 2, 7] are appropriate given completedSprints=[1,2] plus the Sprint-7 retro-applied plumbing. Out-of-scope list correctly defers Sprint-9/10/11/12 items and explicitly handles the missing Sprint-3/4/5/6 dependencies via the new Game.observe_kind hook plus direct bus publication in tests.",
+  "coverage": {
+    "panelUI": "Covered by C1 (importable surface), C2 (fixed dims + wrapping + separators), C3 (sliding window non-mutating), C4 (composite renderer), C5 (CLI default), C6 (render_frame unchanged), C14 (--no-panel/--panel-width), C15 (edge cases), C16 (per-category markers), C22 (layering).",
+    "firstSightNaming": "Covered by C7 (idempotent naming + registry), C10 (template substitution), C12 (Game.observe_kind hook).",
+    "roomProse": "Covered by C8 (per-(floor,room_id) dedupe), C11 (Game lifecycle publishes room_entered for spawn + descent + movement).",
+    "infrastructure": "C9 (pool ≥8 per new type, ≥72 total), C13 (end-to-end determinism), C17 (per-turn cap honored for new types), C18 (Sprint-7 regression), C19 (Sprint-1/2 regression), C20 (≥12 new tests), C21 (docs)."
+  },
+  "strengths": [
+    "Every criterion has concrete testSteps with specific assertions (byte counts, line widths, entry counts, glyph membership) — easy to evaluate objectively.",
+    "Determinism contract is preserved and explicitly tested at the byte level (C6, C13, C19).",
+    "Layering invariants from Sprint 7 are carried forward and explicitly verified (C22) — render must not import llm; game must not import panel.",
+    "Backward-compat for EVENT_TYPES is explicit and additive-only (C18, C22).",
+    "Edge cases (zero whispers, very long text, unicode, height=1) are pinned down in C15 with non-mutation guarantees.",
+    "Budget guardrail extended cleanly to new event types via a CountingAdapter test (C17).",
+    "Assumptions section acknowledges the missing Sprint-3/4/5/6 in tree and provides the Game.observe_kind hook as the substitute integration surface — this prevents the generator from blocking on absent dependencies.",
+    "Out-of-scope list is precise (no curses, no color codes, no cross-run persistence, no real network).",
+    "Documentation criterion (C21) enumerates the six required topics, preventing under-documented merges."
+  ],
+  "concerns": [
+    {
+      "id": "minor-C5",
+      "severity": "minor",
+      "issue": "C5 testStep 4 says grid_only_out should contain no '>' whisper-prefix lines that don't correspond to downstairs. Since '>' is BOTH the downstairs glyph (Sprint-1/2 contract) AND a possible whisper-prefix marker, this assertion is slightly tangled. The intent is clear but the generator may need to use a panel-edge marker like '|' to make the test unambiguous.",
+      "recommendation": "Generator should choose a panel-edge or whisper-prefix marker that does NOT collide with dungeon glyphs ('#', '.', '+', '<', '>', '@'). Acceptable as written; resolution is in implementation, not contract revision."
+    },
+    {
+      "id": "minor-C14",
+      "severity": "minor",
+      "issue": "C14 panel-width=20 assertion uses 'modulo the grid columns; if right-of-grid layout, parse panel columns specifically' — this hedge is appropriate given the layout choice is up to the generator, but it makes the test slightly conditional on the documented layout.",
+      "recommendation": "Acceptable. The criterion already requires the layout choice to be documented (C4) and tested per-the-documented-choice."
+    }
+  ],
+  "regressionAdequacy": "Regression sprints [1, 2, 7] correctly cover all completed/retro-applied work. C18 explicitly re-runs Sprint-7 tests; C19 explicitly re-runs Sprint-1/2 tests. The byte-level determinism check on render_frame (C6) ensures no silent regression of Sprint-2 grid output.",
+  "testabilityAssessment": "All 22 criteria have unambiguous PASS/FAIL conditions. Static checks (C1, C21, C22), unit tests (C2, C3, C6, C7, C8, C9, C10, C12, C15, C16, C17, C20), and integration tests (C5, C11, C13, C14, C18, C19) are appropriately apportioned. No criterion relies on subjective judgment.",
+  "completenessAssessment": "All Sprint-8 deliverables from the sprint plan (panel UI, first-sight naming, room prose) are covered with at least two criteria each. The deliverables list at the end of the proposal maps 1:1 with the criteria.",
+  "approvalNote": "Accepted as-is. The contract is sufficiently detailed, testable, and faithful to the sprint plan. Minor wording concerns above do not require contract revision; they will be resolved by the generator's implementation choices and the evaluator can verify per the documented choice."
+}
