@@ -5,8 +5,8 @@
 .claude/worktrees/
 .claude/settings.local.json
 
-# Harness runtime (screenshots are large binaries)
-harness-state/sprints/*/screenshots/
+# Harness runtime state (generated per-project, not repo content)
+harness-state/
 
 # Node
 node_modules/
