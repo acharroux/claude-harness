@@ -65,11 +65,11 @@ def _delegate_to_bash(script_name: str) -> int:
 
 
 def run_layer2() -> int:
-    return _delegate_to_bash("run-all.sh")
+    return _delegate_to_bash("layer2/smoke-test.sh")
 
 
 def run_layer3() -> int:
-    return _delegate_to_bash("run-all.sh")
+    return _delegate_to_bash("layer3/meta-test.sh")
 
 
 def run_all() -> int:
