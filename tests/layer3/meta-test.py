@@ -58,7 +58,7 @@ def main() -> int:
 
     TMP_BASE.mkdir(parents=True, exist_ok=True)
     dest = TMP_BASE / f"meta-{int(time.time())}" / "claude-harness"
-    dest.mkdir(parents=True)
+    # dest must NOT be pre-created — shutil.copytree creates it
 
     shutil.copytree(str(PROJECT_DIR), str(dest),
                     ignore=shutil.ignore_patterns(
