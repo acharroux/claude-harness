@@ -1,19 +1,28 @@
 {
   "projectName": "harness-python-rewrite",
-  "completedSprints": [1],
-  "currentSprint": 2,
+  "completedSprints": [
+    1,
+    2
+  ],
+  "currentSprint": 3,
   "totalSprints": 5,
   "completedFeatures": [
-    "harness/lib/utils.py — port of utils.sh (all utility functions)",
-    "tests/helpers/test_helper.py — HarnessTestCase base class",
-    "tests/layer1/test_utils.py — 35 Python tests porting test-utils.bats",
-    "tests/run-all.py — Python test runner CLI"
+    "harness/lib/utils.py \u00e2\u20ac\u201d port of utils.sh (all utility functions)",
+    "tests/helpers/test_helper.py \u00e2\u20ac\u201d HarnessTestCase base class",
+    "tests/layer1/test_utils.py \u00e2\u20ac\u201d 35 Python tests porting test-utils.bats",
+    "tests/run-all.py \u00e2\u20ac\u201d Python test runner CLI",
+    "harness/lib/invoke.py -- Python port of invoke.sh",
+    "tests/helpers/mock_claude.py -- Python mock claude",
+    "tests/helpers/claude.cmd -- Windows PATH shim",
+    "tests/layer1/test_invoke.py -- 22 tests"
   ],
   "keyFiles": {
     "utils": "harness/lib/utils.py",
     "testHelper": "tests/helpers/test_helper.py",
     "testUtils": "tests/layer1/test_utils.py",
-    "testRunner": "tests/run-all.py"
+    "testRunner": "tests/run-all.py",
+    "invoke": "harness/lib/invoke.py",
+    "mockClaude": "tests/helpers/mock_claude.py"
   },
   "techStack": {
     "language": "Python 3.8+",
@@ -24,8 +33,8 @@
   "devServerPort": 0,
   "git": {
     "harnessBranch": "harness/rewrite-in-python",
-    "latestTag": "harness/sprint-01/pass",
-    "latestMergeSha": "d2bd13b03aca019e5bebdd2e1a16c742b3ca8d3e",
+    "latestTag": "harness/sprint-02/pass",
+    "latestMergeSha": "fce27625b4936423b8b810a1a8a967eeb503d81c",
     "prNumbers": []
   }
 }
