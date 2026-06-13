@@ -80,8 +80,15 @@ def main() -> int:
         "VIRTUAL_ENV": str(venv_dir),
         "PATH": str(venv_bin) + os.pathsep + os.environ.get("PATH", ""),
     }
-    # Remove PYTHONHOME if set — it would override the venv
     smoke_env.pop("PYTHONHOME", None)
+    # Strip mock claude env vars so real Claude is always used
+    for _var in ("MOCK_CLAUDE_FIXTURE_DIR", "MOCK_CLAUDE_SCENARIO",
+                 "MOCK_CLAUDE_LOG", "MOCK_CLAUDE_STATE_DIR"):
+        smoke_env.pop(_var, None)
+    smoke_env["PATH"] = os.pathsep.join(
+        p for p in smoke_env["PATH"].split(os.pathsep)
+        if "tests" not in p.lower() and "helpers" not in p.lower()
+    )
 
     with open(str(log_path), "w", encoding="utf-8", errors="replace") as log_fh:
         subprocess.run(

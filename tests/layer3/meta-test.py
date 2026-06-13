@@ -44,7 +44,6 @@ def main() -> int:
     if os.environ.get("HARNESS_META_TEST") != "1":
         print("Set HARNESS_META_TEST=1 to run the meta test.")
         print("This costs significant Claude usage (~$50-100).")
-        return 0
 
     print("=== Verifying Layer 1 (prerequisite) ===")
     if not _run_layer1():
@@ -108,6 +107,17 @@ def main() -> int:
         "PATH": str(venv_bin) + os.pathsep + os.environ.get("PATH", ""),
     }
     meta_env.pop("PYTHONHOME", None)
+    # Remove any mock claude / test helpers from PATH that were set by the
+    # calling test process — the meta test must use real Claude, not the mock.
+    meta_env["PATH"] = os.pathsep.join(
+        p for p in meta_env["PATH"].split(os.pathsep)
+        if "tests" not in p.lower() and "helpers" not in p.lower()
+    )
+    # Also clear the mock claude env vars so invoke.py doesn't accidentally
+    # pick up the mock fixture directory from the parent process environment.
+    for _var in ("MOCK_CLAUDE_FIXTURE_DIR", "MOCK_CLAUDE_SCENARIO",
+                 "MOCK_CLAUDE_LOG", "MOCK_CLAUDE_STATE_DIR"):
+        meta_env.pop(_var, None)
 
     with open(str(log_path), "w", encoding="utf-8", errors="replace") as log_fh:
         subprocess.run(
