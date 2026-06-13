@@ -1,0 +1,61 @@
+{
+  "projectName": "harness-python-rewrite",
+  "completedSprints": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "currentSprint": 6,
+  "totalSprints": 5,
+  "completedFeatures": [
+    "harness/lib/utils.py \u00e2\u20ac\u201d port of utils.sh (all utility functions)",
+    "tests/helpers/test_helper.py \u00e2\u20ac\u201d HarnessTestCase base class",
+    "tests/layer1/test_utils.py \u00e2\u20ac\u201d 35 Python tests porting test-utils.bats",
+    "tests/run-all.py \u00e2\u20ac\u201d Python test runner CLI",
+    "harness/lib/invoke.py -- Python port of invoke.sh",
+    "tests/helpers/mock_claude.py -- Python mock claude",
+    "tests/helpers/claude.cmd -- Windows PATH shim",
+    "tests/layer1/test_invoke.py -- 22 tests",
+    "harness/lib/git.py -- Python port of git.sh (9 functions)",
+    "tests/layer1/test_git.py -- 19 Python tests porting test-git.bats",
+    "harness/lib/planner.py -- Python port of planner.sh",
+    "harness/lib/contract.py -- Python port of contract.sh (with tolerance logic)",
+    "harness/lib/generator.py -- Python port of generator.sh (blocked=2)",
+    "harness/lib/evaluator.py -- Python port of evaluator.sh (field tolerance)",
+    "tests/layer1/test_planner/contract/generator/evaluator.py -- 40 tests",
+    "harness/orchestrate.py -- full CLI orchestrator (all 6 modes)",
+    "tests/layer1/test_hooks.py -- 16 hook tests",
+    "tests/layer1/test_pipeline.py -- end-to-end integration test",
+    ".claude/skills/harness-test/SKILL.md -- updated with python alternative"
+  ],
+  "keyFiles": {
+    "utils": "harness/lib/utils.py",
+    "testHelper": "tests/helpers/test_helper.py",
+    "testUtils": "tests/layer1/test_utils.py",
+    "testRunner": "tests/run-all.py",
+    "invoke": "harness/lib/invoke.py",
+    "mockClaude": "tests/helpers/mock_claude.py",
+    "git": "harness/lib/git.py",
+    "testGit": "tests/layer1/test_git.py",
+    "planner": "harness/lib/planner.py",
+    "contract": "harness/lib/contract.py",
+    "generator": "harness/lib/generator.py",
+    "evaluator": "harness/lib/evaluator.py",
+    "orchestrator": "harness/orchestrate.py"
+  },
+  "techStack": {
+    "language": "Python 3.8+",
+    "deps": "stdlib only"
+  },
+  "outstandingIssues": [],
+  "devServerCommand": "",
+  "devServerPort": 0,
+  "git": {
+    "harnessBranch": "harness/rewrite-in-python",
+    "latestTag": "harness/sprint-05/pass",
+    "latestMergeSha": "f915d704af1c038bbeabd7b8fc33f14d4282f2e5",
+    "prNumbers": []
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "decision": "accepted",
+  "feedback": "The proposal comprehensively covers Sprint 5's scope. All six orchestrate.sh modes (new, extend, fix, refactor, resume, regression) are explicitly enumerated in C5-05. All 11 long flags plus the positional prompt are listed in C5-02 and match orchestrate.sh exactly. The integration test (C5-09, C5-10) covers a full 2-sprint pipeline against mock claude with the correct artifact set (product-spec, sprint-plan, eval reports, handoff with completedSprints, harness git tag, cost-log). The hooks test (C5-11/12/13) has proper Windows-skip behavior gated on bash availability with a ban on blanket-skipping. The skill update constraint (C5-15) is well-enforced: original bash line preserved, python alternative added, frontmatter byte-identical, and only harness-test/SKILL.md modified. The no-modify-bash constraint (C5-16) is explicit and verifiable via git diff. Staging behavior (C5-06), auto-init-only-for-new (C5-07), runs-from-anywhere (C5-21), stdlib-only (C5-18), and cross-platform path handling (C5-19) are all covered with concrete subprocess/inspection steps. Cost-cap wiring (C5-20) and sprint-loop semantics including blocked->return 2 (C5-08) are tested. Regression coverage (C5-17, C5-22) protects Sprints 1-4 layer1 tests and the bats/shim files. One minor error and a few edge-case observations are noted in issues but none are blocking; they can be corrected during implementation without renegotiation.",
+  "issues": [
+    {
+      "id": "I-01",
+      "severity": "minor",
+      "criterion": "C5-11",
+      "description": "The criterion description states '15 scenarios across on-generator-stop, on-evaluator-stop, on-stop' but tests/layer1/test-hooks.bats actually contains 16 @test blocks (5 on-generator-stop + 7 on-evaluator-stop + 4 on-stop = 16). The implementation should port all 16, and the threshold should read '16 scenarios mapped one-to-one' rather than 15. Treat the test count as 16, not 15."
+    },
+    {
+      "id": "I-02",
+      "severity": "minor",
+      "criterion": "C5-12",
+      "description": "The skip-behavior test step proposes 'PATH= python -m unittest tests.layer1.test_hooks (POSIX)'. On Windows this exact invocation may still find bash via system PATH or via shutil.which fallbacks. The proposal already allows the alternative 'simulate by monkeypatching shutil.which to return None', which is the more reliable cross-platform approach. Recommend documenting the monkeypatch path as the primary verification method to avoid Windows-specific flakiness."
+    },
+    {
+      "id": "I-03",
+      "severity": "minor",
+      "criterion": "C5-04",
+      "description": "orchestrate.sh prints 'maxcost=${TOTAL_COST_CAP}' (no hyphen) in its dry-run output. The proposal allows either 'max-cost' or 'maxcost' which is reasonable, but for exact behavioral parity with the bash version the Python implementation should mirror the bash format ('maxcost=50') verbatim."
+    },
+    {
+      "id": "I-04",
+      "severity": "informational",
+      "criterion": "C5-17",
+      "description": "The minimum test count '35 + 22 + 19 + 40 = 116' is an estimate; if the actual layer1 baseline differs at the time of evaluation, treat 'zero regression failures' as the binding requirement and the absolute count as advisory."
+    },
+    {
+      "id": "I-05",
+      "severity": "informational",
+      "criterion": "C5-08",
+      "description": "C5-08 lists update_handoff/update_progress/update_regression_registry as required calls inside run_sprint. Note that orchestrate.sh calls update_progress for FAIL and FAILED branches as well (not only PASS); the Python port should preserve that, otherwise progress.md will be missing failure entries."
+    }
+  ]
+}

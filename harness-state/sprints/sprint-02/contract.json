@@ -1,0 +1,341 @@
+{
+  "sprintNumber": 2,
+  "sprintName": "Claude Invocation Wrapper",
+  "summary": "Port the bash invoke_claude wrapper to Python with streaming NDJSON parsing and a Python mock_claude.py that is interchangeable with the existing bash mock. Provide a PATH shim so 'claude' resolves to the Python mock during tests on Windows and POSIX. Cover the wrapper and mock with layer-1 unit tests.",
+  "criteria": [
+    {
+      "id": "C2-01",
+      "category": "module-structure",
+      "description": "harness/lib/invoke.py exists, is valid Python, and exposes a callable invoke_claude(agent, prompt, max_turns=50, mcp_config=None).",
+      "blocking": true,
+      "testMethod": "static-check",
+      "testSteps": [
+        "Import harness.lib.invoke",
+        "Assert invoke_claude is defined and callable",
+        "Inspect the signature: parameters agent, prompt, max_turns (default 50), mcp_config (default None)"
+      ],
+      "threshold": "module imports cleanly and signature matches"
+    },
+    {
+      "id": "C2-02",
+      "category": "argv-construction",
+      "description": "invoke_claude builds argv equivalent to the bash version: ['claude', '-p', PROMPT, '--agent', AGENT, '--max-turns', str(MAX), '--dangerously-skip-permissions', '--output-format', 'stream-json', '--verbose'].",
+      "blocking": true,
+      "testMethod": "unit-test",
+      "testSteps": [
+        "Patch subprocess.Popen to capture the argv passed to it",
+        "Call invoke_claude(agent='planner', prompt='hello', max_turns=10)",
+        "Assert all required flags appear in the captured argv in correct order/pairing"
+      ],
+      "threshold": "argv contains every required flag exactly once with correct values"
+    },
+    {
+      "id": "C2-03",
+      "category": "argv-construction",
+      "description": "When HARNESS_ROOT/.claude/settings.json exists, --settings <path> is appended to argv. When it does not exist, --settings is omitted.",
+      "blocking": true,
+      "testMethod": "unit-test",
+      "testSteps": [
+        "Set HARNESS_ROOT to a temp dir with .claude/settings.json present; capture argv; assert --settings <abs path> appears",
+        "Repeat with no settings.json; assert --settings is absent"
+      ],
+      "threshold": "both cases pass"
+    },
+    {
+      "id": "C2-04",
+      "category": "argv-construction",
+      "description": "When mcp_config is provided, --mcp-config <path> is appended to argv; when None, it is omitted.",
+      "blocking": true,
+      "testMethod": "unit-test",
+      "testSteps": [
+        "Capture argv with mcp_config='/tmp/mcp.json'; assert --mcp-config /tmp/mcp.json present",
+        "Capture argv with mcp_config=None; assert --mcp-config absent"
+      ],
+      "threshold": "both cases pass"
+    },
+    {
+      "id": "C2-05",
+      "category": "binary-resolution",
+      "description": "invoke_claude resolves the claude executable via shutil.which (so a PATH-shimmed mock is found). When not found, it raises a clear FileNotFoundError or returns a non-zero error with a readable message mentioning 'claude'.",
+      "blocking": true,
+      "testMethod": "unit-test",
+      "testSteps": [
+        "Set PATH to an empty dir, call invoke_claude(...)",
+        "Assert a FileNotFoundError (or equivalent clear failure) is raised, with message referencing claude"
+      ],
+      "threshold": "raises descriptive error rather than crashing or hanging"
+    },
+    {
+      "id": "C2-06",
+      "category": "exit-code-propagation",
+      "description": "invoke_claude returns the exit code from the subprocess unchanged (0 on success, non-zero on failure).",
+      "blocking": true,
+      "testMethod": "unit-test",
+      "testSteps": [
+        "Configure mock to exit 0; assert invoke_claude returns 0",
+        "Configure mock to exit 7; assert invoke_claude returns 7"
+      ],
+      "threshold": "exit code is propagated for at least two distinct values including 0 and a non-zero"
+    },
+    {
+      "id": "C2-07",
+      "category": "ndjson-streaming",
+      "description": "invoke_claude reads the subprocess stdout line-by-line, parses each line as JSON, and tolerates malformed/non-JSON lines (skips them without raising).",
+      "blocking": true,
+      "testMethod": "unit-test",
+      "testSteps": [
+        "Feed a fake stdout pipe containing two valid NDJSON records and one malformed line",
+        "Assert invoke_claude completes successfully and the malformed line did not raise"
+      ],
+      "threshold": "no exception; valid records processed, invalid records skipped"
+    },
+    {
+      "id": "C2-08",
+      "category": "progress-display",
+      "description": "When an NDJSON record of type 'assistant' contains a tool_use content block, invoke_claude writes a progress line to stderr that contains the tool name and a brief preview of the tool input.",
+      "blocking": true,
+      "testMethod": "unit-test",
+      "testSteps": [
+        "Capture stderr",
+        "Feed an NDJSON 'assistant' record with content [{type:'tool_use', name:'Bash', input:{command:'ls'}}]",
+        "Assert stderr contains the substring 'Bash' and 'ls'"
+      ],
+      "threshold": "tool name and preview appear in stderr output"
+    },
+    {
+      "id": "C2-09",
+      "category": "progress-display",
+      "description": "When an NDJSON record of type 'result' contains total_cost_usd, a 'Cost: $<value>' line is written to stderr.",
+      "blocking": true,
+      "testMethod": "unit-test",
+      "testSteps": [
+        "Capture stderr",
+        "Feed an NDJSON 'result' record with total_cost_usd=0.0123",
+        "Assert stderr contains 'Cost:' and '0.0123'"
+      ],
+      "threshold": "cost line emitted to stderr"
+    },
+    {
+      "id": "C2-10",
+      "category": "progress-display",
+      "description": "Progress output is written to stderr (not stdout), so callers piping stdout do not see decorations.",
+      "blocking": false,
+      "testMethod": "unit-test",
+      "testSteps": [
+        "Capture stdout and stderr separately",
+        "Run a scenario that emits a tool_use progress line",
+        "Assert the progress marker text appears only in stderr, not stdout"
+      ],
+      "threshold": "progress decorations confined to stderr"
+    },
+    {
+      "id": "C2-11",
+      "category": "mock-claude",
+      "description": "tests/helpers/mock_claude.py exists, has a Python shebang, runs as a standalone script, and reads the same env vars as the bash mock: MOCK_CLAUDE_FIXTURE_DIR (required), MOCK_CLAUDE_SCENARIO (default 'pass'), MOCK_CLAUDE_LOG, MOCK_CLAUDE_STATE_DIR.",
+      "blocking": true,
+      "testMethod": "static-check + run",
+      "testSteps": [
+        "Open tests/helpers/mock_claude.py and verify shebang line begins with '#!' and references python",
+        "Run 'python tests/helpers/mock_claude.py --agent planner -p test' without MOCK_CLAUDE_FIXTURE_DIR set; assert it errors out (parity with bash 'must be set' behavior)",
+        "Run with all env vars set; assert it exits 0"
+      ],
+      "threshold": "script exists, fails clearly on missing fixture dir, succeeds with full env"
+    },
+    {
+      "id": "C2-12",
+      "category": "mock-claude",
+      "description": "mock_claude.py routes by --agent value identically to the bash mock: 'planner' copies product-spec-minimal.md and sprint-plan-2sprint.json into harness-state/.",
+      "blocking": true,
+      "testMethod": "behavior-test",
+      "testSteps": [
+        "Create temp cwd with harness-state/ dir",
+        "Set MOCK_CLAUDE_FIXTURE_DIR to fixtures/",
+        "Run mock_claude.py --agent planner -p 'Build a thing'",
+        "Assert harness-state/product-spec.md exists and equals fixtures/product-spec-minimal.md",
+        "Assert harness-state/sprint-plan.json exists and equals fixtures/sprint-plan-2sprint.json"
+      ],
+      "threshold": "both files copied; bytes match fixtures"
+    },
+    {
+      "id": "C2-13",
+      "category": "mock-claude",
+      "description": "mock_claude.py generator routing parity: when prompt mentions 'Propose contract' the contract-proposal-valid.json fixture is written to the right sprint dir; otherwise a status.json (ready-for-eval or blocked depending on MOCK_CLAUDE_SCENARIO) plus generator-log.md are written.",
+      "blocking": true,
+      "testMethod": "behavior-test",
+      "testSteps": [
+        "Run mock_claude.py --agent generator -p 'Propose contract for sprint-01'; assert contract-proposal.json fixture appears in harness-state/sprints/sprint-01/",
+        "Run mock_claude.py --agent generator -p 'Implement sprint-01'; assert status.json with status 'ready-for-eval' is written",
+        "Repeat with MOCK_CLAUDE_SCENARIO=fail-generator-blocked; assert status.json contains 'blocked'"
+      ],
+      "threshold": "all three routing branches behave identically to bash mock"
+    },
+    {
+      "id": "C2-14",
+      "category": "mock-claude",
+      "description": "mock_claude.py evaluator routing parity: 'review contract' writes contract-review.json (revise-then-accept scenario alternates revise then accepted across calls); 'Evaluate sprint' writes eval-report.json + status.json (pass on default scenario, fail on fail-eval scenario).",
+      "blocking": true,
+      "testMethod": "behavior-test",
+      "testSteps": [
+        "Run with --agent evaluator -p 'review contract for sprint-01'; assert contract-review-accepted.json copied",
+        "Run with MOCK_CLAUDE_SCENARIO=revise-then-accept twice (first call -> contract-review-revise, second -> contract-review-accepted)",
+        "Run with --agent evaluator -p 'Evaluate sprint-01'; assert eval-report-pass.json copied and status.status == 'pass'",
+        "Run with MOCK_CLAUDE_SCENARIO=fail-eval -p 'Evaluate sprint-01'; assert eval-report-fail-blocking.json copied and status.status == 'fail'"
+      ],
+      "threshold": "all evaluator routing branches match bash mock"
+    },
+    {
+      "id": "C2-15",
+      "category": "mock-claude",
+      "description": "mock_claude.py logs each invocation to MOCK_CLAUDE_LOG with the same line format as the bash mock (call=N agent=NAME scenario=SCEN prompt=...) and maintains call-count and per-agent-count files in MOCK_CLAUDE_STATE_DIR.",
+      "blocking": true,
+      "testMethod": "behavior-test",
+      "testSteps": [
+        "Run mock_claude.py three times with different agents",
+        "Assert MOCK_CLAUDE_LOG contains 3 lines each starting with 'call=' and including 'agent=' and 'scenario='",
+        "Assert state-dir/call-count contains '3'",
+        "Assert state-dir/<agent>-count files exist with correct counts"
+      ],
+      "threshold": "log format and state files match bash mock byte-for-byte where applicable"
+    },
+    {
+      "id": "C2-16",
+      "category": "mock-claude",
+      "description": "mock_claude.py emits a final usage_json line on stdout (a JSON object with session_id and usage.input_tokens / usage.output_tokens), matching the bash mock's terminal output.",
+      "blocking": false,
+      "testMethod": "behavior-test",
+      "testSteps": [
+        "Capture stdout from a planner invocation",
+        "Assert stdout contains a parseable JSON object with session_id and usage fields"
+      ],
+      "threshold": "JSON usage record present on stdout"
+    },
+    {
+      "id": "C2-17",
+      "category": "path-shim",
+      "description": "A PATH shim makes the Python mock invokable simply as 'claude'. On Windows, tests/helpers/claude.cmd execs python tests/helpers/mock_claude.py (forwarding all args). On POSIX, the existing bash 'claude' shim continues to work; if a Python-only POSIX shim is added it must be executable.",
+      "blocking": true,
+      "testMethod": "behavior-test",
+      "testSteps": [
+        "Verify tests/helpers/claude.cmd exists on Windows and contains a python invocation of mock_claude.py with %* arg forwarding",
+        "Prepend tests/helpers/ to PATH; run shutil.which('claude'); assert a path is returned",
+        "Run subprocess.run(['claude', '--agent','planner','-p','hi'], env=...); assert exit code 0 and fixture files appear"
+      ],
+      "threshold": "claude resolves on PATH and behaves like the mock"
+    },
+    {
+      "id": "C2-18",
+      "category": "cross-platform",
+      "description": "The existing bash mock (tests/helpers/claude) MUST NOT be modified or deleted. It remains functional for bash users.",
+      "blocking": true,
+      "testMethod": "static-check",
+      "testSteps": [
+        "git diff HEAD -- tests/helpers/claude shows no changes",
+        "tests/helpers/claude file still exists and is non-empty"
+      ],
+      "threshold": "bash mock untouched"
+    },
+    {
+      "id": "C2-19",
+      "category": "no-script-mods",
+      "description": "No .sh, .bash, .ps1, or .bats files are modified in this sprint (per project-wide constraint). New .cmd shim is allowed.",
+      "blocking": true,
+      "testMethod": "static-check",
+      "testSteps": [
+        "git diff --name-only origin/main...HEAD | filter for .sh, .ps1, .bats, .bash; assert empty"
+      ],
+      "threshold": "zero modified shell/bats/powershell files"
+    },
+    {
+      "id": "C2-20",
+      "category": "tests-exist",
+      "description": "tests/layer1/test_invoke.py exists and contains test methods for: argv construction (basic, with settings, with mcp_config), exit-code propagation, NDJSON parsing including malformed lines, tool_use progress to stderr, cost line to stderr, claude-not-found behavior, and PATH shim resolution.",
+      "blocking": true,
+      "testMethod": "static-check",
+      "testSteps": [
+        "Open tests/layer1/test_invoke.py",
+        "Assert at least 8 test methods (def test_*) exist covering the categories listed"
+      ],
+      "threshold": ">= 8 test methods present, covering each listed category at least once"
+    },
+    {
+      "id": "C2-21",
+      "category": "tests-pass",
+      "description": "Running 'python tests/run-all.py layer1' from project root passes all tests, including the new test_invoke tests and the prior test_utils tests (no regressions).",
+      "blocking": true,
+      "testMethod": "integration-run",
+      "testSteps": [
+        "From project root, run: python tests/run-all.py layer1",
+        "Assert exit code 0",
+        "Assert output reports OK (or equivalent) and includes test_invoke and test_utils suites"
+      ],
+      "threshold": "exit code 0, all tests pass"
+    },
+    {
+      "id": "C2-22",
+      "category": "regression-sprint-1",
+      "description": "Sprint 1 deliverables continue to function: harness/lib/utils.py imports cleanly, tests/layer1/test_utils.py still passes (no regressions introduced).",
+      "blocking": true,
+      "testMethod": "regression",
+      "testSteps": [
+        "python -c 'from harness.lib import utils; print(utils.slugify(\"Hello World\"))'; assert exit 0 and output 'hello-world'",
+        "python -m unittest tests.layer1.test_utils -v; assert exit code 0"
+      ],
+      "threshold": "all sprint-1 tests still pass"
+    },
+    {
+      "id": "C2-23",
+      "category": "stdlib-only",
+      "description": "harness/lib/invoke.py and tests/helpers/mock_claude.py use only Python 3.8+ standard library modules (no third-party imports).",
+      "blocking": true,
+      "testMethod": "static-check",
+      "testSteps": [
+        "Inspect import statements in both files",
+        "Assert every imported top-level package is in the stdlib whitelist (json, os, sys, subprocess, shutil, pathlib, re, datetime, typing, argparse, etc.)"
+      ],
+      "threshold": "no third-party imports"
+    },
+    {
+      "id": "C2-24",
+      "category": "interchangeability",
+      "description": "The Python mock and the bash mock produce equivalent harness-state artifacts for the planner agent invocation (same files, same content). On Windows-without-bash, this test skips with a clear message.",
+      "blocking": false,
+      "testMethod": "behavior-test",
+      "testSteps": [
+        "In two separate temp dirs with the same env vars, run the bash mock (where bash is available) and the Python mock with --agent planner",
+        "Diff harness-state/product-spec.md and harness-state/sprint-plan.json between the two dirs",
+        "Assert both files are byte-identical"
+      ],
+      "threshold": "byte-identical fixtures produced; skips cleanly when bash unavailable"
+    },
+    {
+      "id": "C2-25",
+      "category": "commit-hygiene",
+      "description": "Sprint work is committed with messages following the harness convention referencing sprint-02 and at least one criterion id.",
+      "blocking": true,
+      "testMethod": "static-check",
+      "testSteps": [
+        "git log --oneline; assert at least one commit message starts with 'harness(sprint-02):' and references a [C2-XX] id"
+      ],
+      "threshold": ">= 1 conformant commit"
+    }
+  ],
+  "files": [
+    {"path": "harness/lib/invoke.py", "action": "create", "purpose": "Python port of invoke.sh: subprocess + streaming NDJSON + progress display"},
+    {"path": "tests/helpers/mock_claude.py", "action": "create", "purpose": "Python port of bash mock claude with same env-var contract and fixture routing"},
+    {"path": "tests/helpers/claude.cmd", "action": "create", "purpose": "Windows PATH shim that execs python tests/helpers/mock_claude.py"},
+    {"path": "tests/layer1/test_invoke.py", "action": "create", "purpose": "Unit tests for invoke.py and mock plumbing"},
+    {"path": "tests/run-all.py", "action": "may-update", "purpose": "Optional: ensure layer1 runner picks up test_invoke (likely already auto-discovers)"},
+    {"path": "tests/helpers/test_helper.py", "action": "may-update", "purpose": "Optional: add helper for prepending tests/helpers to PATH or counting mock invocations"},
+    {"path": "harness-state/handoff.json", "action": "update", "purpose": "Add sprint 2 to completedSprints with new key files"},
+    {"path": "harness-state/progress.md", "action": "update", "purpose": "Append sprint-02 narrative entry"}
+  ],
+  "outOfScope": [
+    "Modifying harness/lib/invoke.sh, tests/helpers/claude, or any .sh/.ps1/.bats/.bash file",
+    "Implementing harness/lib/git.py (sprint 3)",
+    "Implementing phase modules planner/contract/generator/evaluator (sprint 4)",
+    "Implementing harness/orchestrate.py (sprint 5)",
+    "Hooks porting or re-implementation",
+    "Adding third-party Python packages or pyproject.toml/requirements.txt"
+  ],
+  "regressionSprints": [1]
+}

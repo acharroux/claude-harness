@@ -1,0 +1,59 @@
+{
+  "sprints": [
+    {
+      "id": 1,
+      "number": 1,
+      "name": "Core Utilities and Test Infrastructure",
+      "theme": "Foundation: pure utility functions plus the Python test runner skeleton",
+      "description": "Implement harness/lib/utils.py mirroring harness/lib/utils.sh function-for-function (slugify, sprint_pad, sprint_dir, json_read, file_exists, init_harness_state, update_handoff, update_regression_registry, update_progress, log_cost, check_cost_cap, plus colored log helpers). Build the Python test infrastructure: tests/run-all.py CLI accepting layer1|layer2|layer3|all, tests/helpers/test_helper.py with a HarnessTestCase base class (isolated tempdir setUp/tearDown, env var management, install_fixture helper, init_test_repo helper), and tests/layer1/test_utils.py covering every scenario in tests/layer1/test-utils.bats. Reuse the existing tests/helpers/fixtures/ directory unchanged. Do NOT modify any .sh or .ps1 file. Verify by running `python tests/run-all.py layer1` on Linux/macOS/Windows and seeing the utils tests pass with output equivalent to the bats run.",
+      "features": ["F1 Pure utilities", "F6 Python test infrastructure (skeleton + utils tests)"],
+      "dependencies": [],
+      "dependsOn": [],
+      "estimatedComplexity": "medium"
+    },
+    {
+      "id": 2,
+      "number": 2,
+      "name": "Claude Invocation Wrapper",
+      "theme": "Stream NDJSON from claude -p with progress display, plus a Python mock claude",
+      "description": "Implement harness/lib/invoke.py: invoke_claude(agent, prompt, max_turns, mcp_config=None) that builds the argv (--agent, --max-turns, --dangerously-skip-permissions, --output-format stream-json, --verbose, optional --settings and --mcp-config), spawns claude via subprocess.Popen, streams NDJSON line-by-line, prints tool-use previews and per-result cost lines to stderr matching the bash format (gray ▸ markers), and returns the process exit code. Locate the claude binary with shutil.which and fail clearly when not found. Build tests/helpers/mock_claude.py as a faithful Python port of tests/helpers/claude (same fixtures, same env vars MOCK_CLAUDE_FIXTURE_DIR/MOCK_CLAUDE_SCENARIO/MOCK_CLAUDE_LOG/MOCK_CLAUDE_STATE_DIR, same scenario routing logic). Provide a PATH shim so the mock is invoked simply as `claude` during tests on both Windows (via a claude.cmd wrapper) and POSIX (via an executable script). Add tests/layer1/test_invoke.py verifying argv construction, exit-code propagation, NDJSON parsing of the mock's output, and the mock-PATH plumbing. Do NOT modify any .sh or .ps1 file (the existing bash mock and claude shim must continue to work for bash users).",
+      "features": ["F2 Claude invocation wrapper", "F6 mock_claude.py and PATH shim"],
+      "dependencies": [1],
+      "dependsOn": [1],
+      "estimatedComplexity": "medium"
+    },
+    {
+      "id": 3,
+      "number": 3,
+      "name": "Git Operations",
+      "theme": "Branch/merge/tag/PR/issue operations as subprocess calls to git and gh",
+      "description": "Implement harness/lib/git.py with create_harness_branch, create_sprint_branch, merge_sprint, fail_sprint_attempt, commit_harness_state, create_pr, create_fix_pr, create_issue, generate_pr_body. Branch and tag names must match the bash version EXACTLY: harness/<slug>, harness/<slug>-sprint-NN, tags harness/sprint-NN/pass and harness/sprint-NN/attempt-K. Detect missing gh and missing remotes the same way bash does and emit equivalent warnings. Stash and discard uncommitted changes during fail_sprint_attempt. Build tests/layer1/test_git.py covering every scenario in tests/layer1/test-git.bats: branch creation, idempotent harness branch, sprint branch cleanup wipes prior work, merge_sprint creates a no-ff merge commit + tag + deletes the sprint branch, fail_sprint_attempt tags the attempt and returns to harness branch, commit_harness_state is no-op when clean, generate_pr_body contains the sprint table with PASS rows. All tests run in isolated temp git repos. Do NOT modify any .sh or .ps1 file.",
+      "features": ["F3 Git operations"],
+      "dependencies": [1],
+      "dependsOn": [1],
+      "estimatedComplexity": "medium"
+    },
+    {
+      "id": 4,
+      "number": 4,
+      "name": "Phase Modules: Planner, Contract, Generator, Evaluator",
+      "theme": "Port the four agent-phase wrappers with all output-tolerance logic intact",
+      "description": "Implement harness/lib/planner.py (invoke_planner with new/extend modes, output validation including design-spec check on web-frontend), harness/lib/contract.py (negotiate_contract with up-to-MAX_CONTRACT_ROUNDS rounds, criteria-count tolerance for .criteria/.features[].acceptanceCriteria/.acceptanceCriteria, decision tolerance for accepted/accept/approved/approve, accept-on-max-rounds fallback), harness/lib/generator.py (invoke_generator with retry-aware prompt, design-spec injection on web-frontend, status validation including blocked->return 2), harness/lib/evaluator.py (invoke_evaluator with project-type-specific MCP flag, field-name tolerance for overallResult/result/verdict and pass_count variants, plus invoke_regression). Port the EXACT tolerance logic from the bash scripts -- this tolerance is load-bearing because real Claude output varies. Build tests/layer1/test_planner.py, test_contract.py, test_generator.py, test_evaluator.py covering every scenario in the corresponding bats files (sprint count returned, files created, mock invocation logged, extend-mode prompt, contract revise-then-accept across two rounds, generator status=ready-for-eval vs blocked exit codes, evaluator PASS=0 / FAIL=1 / report fields, regression returns 0 on pass). Cross-check that every numbered bats test has a Python equivalent. Do NOT modify any .sh or .ps1 file.",
+      "features": ["F4 Phase modules"],
+      "dependencies": [1, 2],
+      "dependsOn": [1, 2],
+      "estimatedComplexity": "high"
+    },
+    {
+      "id": 5,
+      "number": 5,
+      "name": "Orchestrator, Integration Tests, and Skill Update",
+      "theme": "Top-level CLI tying everything together, hook tests, end-to-end mocked pipeline, skill doc",
+      "description": "Implement harness/orchestrate.py with argparse parsing matching all flags from harness/orchestrate.sh (positional prompt; --extend/--fix/--refactor/--regression/--resume; --project-type, --context-strategy, --model, --max-cost, --from-sprint, --dry-run). Implement all six modes: new, extend, fix, refactor, resume, regression. Stage .claude/agents and .claude/skills from HARNESS_ROOT into cwd (don't clobber), append harness entries to .gitignore if missing, auto-init git repo for new builds, run the contract->implement->evaluate sprint loop with MAX_SPRINT_ATTEMPTS retries, write handoff.json after each pass, generate the README via a final generator call, create the wrap-up PR. Build tests/layer1/test_hooks.py that drives the existing harness/hooks/*.sh scripts via subprocess and verifies the exit codes for all scenarios in tests/layer1/test-hooks.bats; on Windows-without-bash, the test class skips cleanly with a clear message. Build a Python end-to-end integration test (tests/layer1/test_pipeline.py or similar) that runs orchestrate.py against the mock claude through a complete two-sprint plan and asserts the same artifacts the layer-2 smoke test asserts (product-spec.md, sprint-plan.json, eval reports, harness git tag, handoff.completedSprints populated, cost-log.json present). Wire tests/run-all.py so layer2/layer3 invoke the existing tests/layer2/smoke-test.sh and tests/layer3/meta-test.sh unchanged (skip with informative message on Windows-without-bash). Minimally update .claude/skills/harness-test/SKILL.md to document the alternate command `python tests/run-all.py [layer]`, leaving the bash command as the primary. Verify the entire suite (`python tests/run-all.py layer1`) passes on Linux, macOS, and Windows. Do NOT modify any .sh or .ps1 file; do NOT modify any other skill or agent definition.",
+      "features": ["F5 Main orchestrator", "F6 Hooks and pipeline tests + run-all wiring", "F8 Skill update", "F9 Cross-platform UX"],
+      "dependencies": [1, 2, 3, 4],
+      "dependsOn": [1, 2, 3, 4],
+      "estimatedComplexity": "high"
+    }
+  ]
+}

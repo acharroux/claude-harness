@@ -1,0 +1,337 @@
+{
+  "sprintNumber": 5,
+  "sprintName": "Orchestrator, Integration Tests, and Skill Update",
+  "summary": "Top-level Python orchestrator (harness/orchestrate.py) implementing all six modes (new, extend, fix, refactor, resume, regression) with argparse flags matching orchestrate.sh exactly; a Python port of test-hooks.bats (subprocess-driven, skipped on Windows-without-bash); an end-to-end integration test that drives a 2-sprint pipeline against the mock claude; finalized layer2/layer3 delegation in tests/run-all.py; and a minimal additive update to .claude/skills/harness-test/SKILL.md mentioning python tests/run-all.py.",
+  "outOfScope": [
+    "Modifying any .sh or .ps1 file (orchestrate.sh, lib/*.sh, hooks/*.sh, tests/**/*.sh, run-all.sh, test_helper.bash, claude shim, all PowerShell scripts).",
+    "Modifying any .claude/agents/*.md file.",
+    "Modifying any .claude/skills/*/SKILL.md other than harness-test/SKILL.md (and only as a minimal additive change).",
+    "Re-implementing the bash hooks themselves in Python.",
+    "Adding any third-party Python package (stdlib only).",
+    "Adding new orchestrator features not present in orchestrate.sh.",
+    "Replacing or rewriting the existing bats test files (they remain on disk and continue to work)."
+  ],
+  "regressionSprints": [1, 2, 3, 4],
+  "criteria": [
+    {
+      "id": "C5-01",
+      "category": "structure",
+      "blocking": true,
+      "description": "harness/orchestrate.py exists and is a valid Python 3.8+ module that can be imported and executed as a script (python harness/orchestrate.py --help exits 0).",
+      "testMethod": "subprocess",
+      "testSteps": [
+        "Run: python harness/orchestrate.py --help",
+        "Assert exit code is 0",
+        "Assert stdout contains 'usage' and the program name",
+        "Run: python -c \"import ast; ast.parse(open('harness/orchestrate.py').read())\"",
+        "Assert exit code is 0 (file is syntactically valid)"
+      ],
+      "threshold": "Both invocations exit 0; --help output non-empty."
+    },
+    {
+      "id": "C5-02",
+      "category": "cli-flags",
+      "blocking": true,
+      "description": "argparse accepts every long flag that orchestrate.sh supports: positional prompt, --extend, --fix, --refactor, --regression, --resume, --project-type, --context-strategy, --model, --max-cost, --from-sprint, --dry-run.",
+      "testMethod": "subprocess",
+      "testSteps": [
+        "Run: python harness/orchestrate.py --help",
+        "Capture stdout",
+        "Assert stdout contains each of: --extend, --fix, --refactor, --regression, --resume, --project-type, --context-strategy, --model, --max-cost, --from-sprint, --dry-run"
+      ],
+      "threshold": "All 11 long flags appear in --help output."
+    },
+    {
+      "id": "C5-03",
+      "category": "cli-flags",
+      "blocking": true,
+      "description": "Unknown options cause a non-zero exit, and `python orchestrate.py` (mode=new) without a prompt exits non-zero with a usage error, mirroring orchestrate.sh.",
+      "testMethod": "subprocess",
+      "testSteps": [
+        "Run: python harness/orchestrate.py --bogus-flag",
+        "Assert exit code != 0",
+        "Run: python harness/orchestrate.py (no args)",
+        "Assert exit code != 0",
+        "Assert stderr mentions usage or required prompt"
+      ],
+      "threshold": "Both invocations exit non-zero with informative stderr."
+    },
+    {
+      "id": "C5-04",
+      "category": "dry-run",
+      "blocking": true,
+      "description": "--dry-run prints the resolved mode/prompt/config and exits 0 without invoking claude or modifying any state.",
+      "testMethod": "subprocess",
+      "testSteps": [
+        "In an isolated tempdir with no harness-state/, run: python <abs>/harness/orchestrate.py --dry-run \"Build a kanban board\" --project-type web-frontend --model sonnet --max-cost 50",
+        "Assert exit code is 0",
+        "Assert stdout/stderr mentions 'DRY RUN' (or equivalent) and shows mode=new, the prompt, project-type=web-frontend, model=sonnet, max-cost/maxcost=50",
+        "Assert no harness-state/ directory was created in the tempdir"
+      ],
+      "threshold": "Exit 0; no side effects on filesystem."
+    },
+    {
+      "id": "C5-05",
+      "category": "modes",
+      "blocking": true,
+      "description": "All six modes are recognized and dispatched: new (default when prompt given), extend, fix, refactor, resume, regression. Each mode has a corresponding implementation function in orchestrate.py.",
+      "testMethod": "code-review + subprocess",
+      "testSteps": [
+        "Grep harness/orchestrate.py for the strings 'new', 'extend', 'fix', 'refactor', 'resume', 'regression' as mode dispatch values",
+        "Assert orchestrate.py defines functions or branches handling each of the six modes",
+        "For each mode, run with --dry-run and a minimal prompt; assert exit code 0 and stdout reports the correct mode (e.g., python orchestrate.py --extend 'x' --dry-run reports mode=extend)"
+      ],
+      "threshold": "Each of the six --dry-run mode invocations exits 0 and identifies the correct mode."
+    },
+    {
+      "id": "C5-06",
+      "category": "staging",
+      "blocking": true,
+      "description": "When .claude/agents and .claude/skills exist under HARNESS_ROOT, the orchestrator copies them into cwd/.claude/ without clobbering existing files (cp -rn equivalent), and adds .claude/agents/ and .claude/skills/ entries to .gitignore if missing.",
+      "testMethod": "subprocess + filesystem inspection",
+      "testSteps": [
+        "Create a temp working dir; create cwd/.claude/agents/existing.md with sentinel content 'KEEP_ME'",
+        "Run orchestrate.py --dry-run \"x\" from that cwd (or invoke the staging function directly via python -c)",
+        "Assert cwd/.claude/agents/existing.md still contains 'KEEP_ME' (no clobber)",
+        "Assert cwd/.claude/agents/ now contains files copied from HARNESS_ROOT/.claude/agents/",
+        "Assert cwd/.claude/skills/ contains files copied from HARNESS_ROOT/.claude/skills/",
+        "Assert cwd/.gitignore contains the lines '.claude/agents/' and '.claude/skills/'"
+      ],
+      "threshold": "Staging is idempotent and non-destructive; gitignore entries are appended only once."
+    },
+    {
+      "id": "C5-07",
+      "category": "auto-init-git",
+      "blocking": true,
+      "description": "In mode=new, when cwd is not a git repo, the orchestrator runs git init -b main, configures user.email/user.name (defaulting to harness@claude-harness.dev / Claude Harness, env-overridable), creates README.md and an initial commit. Other modes do NOT auto-init.",
+      "testMethod": "subprocess + git inspection",
+      "testSteps": [
+        "Create an empty tempdir (no .git)",
+        "Mock claude on PATH so the planner call is intercepted; run orchestrate.py with --dry-run \"x\" and assert git init is NOT triggered when DRY_RUN is true",
+        "Alternatively: directly call the auto-init helper via python -c in a non-git tempdir and assert the resulting repo has a 'main' branch and an initial commit",
+        "Assert that running --extend in a non-git tempdir errors out (no auto-init outside mode=new)"
+      ],
+      "threshold": "Auto-init occurs only for mode=new; produces a single-commit repo on branch 'main'."
+    },
+    {
+      "id": "C5-08",
+      "category": "sprint-loop",
+      "blocking": true,
+      "description": "The sprint loop function (run_sprint or equivalent) implements the contract -> generator -> evaluator cycle with up to MAX_SPRINT_ATTEMPTS=3 retries; on PASS it updates handoff/progress/registry and tags via git.merge_sprint; on FAIL it calls fail_sprint_attempt and retries; on generator status='blocked' it returns the equivalent of exit code 2 without retrying.",
+      "testMethod": "code-review + unit test",
+      "testSteps": [
+        "Inspect orchestrate.py: assert MAX_SPRINT_ATTEMPTS=3 is defined or the equivalent constant exists",
+        "Assert run_sprint (or equivalent) calls negotiate_contract, invoke_generator, invoke_evaluator, git.merge_sprint, git.fail_sprint_attempt, update_handoff, update_progress, update_regression_registry",
+        "Assert the blocked-status branch returns 2 (early-exit, no retry) by reading the source",
+        "Run a focused unit test that monkeypatches the phase functions and asserts the retry/blocked semantics"
+      ],
+      "threshold": "All required calls are present; retry/blocked logic verified by unit test."
+    },
+    {
+      "id": "C5-09",
+      "category": "integration",
+      "blocking": true,
+      "description": "tests/layer1/test_pipeline.py exists and runs an end-to-end scenario where orchestrate.py executes a complete two-sprint plan against the mock claude, producing the expected artifacts.",
+      "testMethod": "unittest",
+      "testSteps": [
+        "Run: python tests/run-all.py layer1 (or invoke unittest directly on test_pipeline)",
+        "Assert test_pipeline tests are discovered and pass",
+        "Assert test asserts the existence of: harness-state/product-spec.md, harness-state/sprint-plan.json, harness-state/sprints/sprint-01/eval-report.json, harness-state/sprints/sprint-02/eval-report.json, harness-state/handoff.json (with completedSprints non-empty), harness-state/cost-log.json"
+      ],
+      "threshold": "test_pipeline runs in under 60 seconds and asserts the layer-2-equivalent artifact set."
+    },
+    {
+      "id": "C5-10",
+      "category": "integration",
+      "blocking": true,
+      "description": "The integration test creates a harness git tag (harness/sprint-01/pass or equivalent) demonstrating the orchestrator wired the git phase correctly.",
+      "testMethod": "unittest",
+      "testSteps": [
+        "In test_pipeline, after the run, run: git tag -l 'harness/sprint-*'",
+        "Assert at least one tag matching 'harness/sprint-01/pass' (or the bash-equivalent format) is present",
+        "Assert handoff.json's git.latestTag field is set to a non-empty string"
+      ],
+      "threshold": "At least one passing-sprint tag exists after the run."
+    },
+    {
+      "id": "C5-11",
+      "category": "hooks-tests",
+      "blocking": true,
+      "description": "tests/layer1/test_hooks.py exists and contains a Python TestCase that drives each existing harness/hooks/*.sh script via subprocess, mirroring every scenario in test-hooks.bats (15 scenarios across on-generator-stop, on-evaluator-stop, on-stop).",
+      "testMethod": "code-review + unittest",
+      "testSteps": [
+        "Open tests/layer1/test_hooks.py",
+        "Assert it contains test methods covering each of the 15 bats scenarios (by name or by setup pattern)",
+        "Run the file standalone (python -m unittest tests.layer1.test_hooks); assert it either runs and passes or skips with a clear bash-not-found message"
+      ],
+      "threshold": "15 scenarios mapped one-to-one; test runs cleanly."
+    },
+    {
+      "id": "C5-12",
+      "category": "hooks-tests",
+      "blocking": true,
+      "description": "test_hooks.py skips cleanly (using unittest.skip / SkipTest) when bash is not available on PATH, with an informative message rather than failing.",
+      "testMethod": "subprocess",
+      "testSteps": [
+        "Run: PATH= python -m unittest tests.layer1.test_hooks (POSIX) or simulate by monkeypatching shutil.which to return None",
+        "Assert the test reports skipped count > 0 OR that the test class has a skipUnless/skipIf decorator referencing bash availability",
+        "Assert no failures or errors are produced",
+        "When bash IS available, the tests must actually execute (not blanket-skip)"
+      ],
+      "threshold": "Skip behavior exists and is conditional on bash availability; not a blanket skip."
+    },
+    {
+      "id": "C5-13",
+      "category": "hooks-tests",
+      "blocking": true,
+      "description": "When bash is available, every test_hooks.py test passes against the real harness/hooks/*.sh scripts (the existing scripts are not modified).",
+      "testMethod": "unittest",
+      "testSteps": [
+        "Run: python -m unittest tests.layer1.test_hooks -v",
+        "If bash is on PATH, assert all tests pass (no failures)",
+        "Assert harness/hooks/on-generator-stop.sh, on-evaluator-stop.sh, on-stop.sh are byte-identical to their pre-sprint state (git diff --quiet HEAD~1 -- harness/hooks/)"
+      ],
+      "threshold": "All hook tests pass on a bash-equipped host; no hook script was modified."
+    },
+    {
+      "id": "C5-14",
+      "category": "test-runner",
+      "blocking": true,
+      "description": "tests/run-all.py layer2 invokes tests/layer2/smoke-test.sh via bash when bash is available, and skips with an informative message otherwise. Likewise, layer3 invokes tests/layer3/meta-test.sh.",
+      "testMethod": "code-review + subprocess",
+      "testSteps": [
+        "Inspect tests/run-all.py: assert run_layer2 references tests/layer2/smoke-test.sh and run_layer3 references tests/layer3/meta-test.sh (correct script paths, not the same generic run-all.sh)",
+        "Run: python tests/run-all.py layer2 with bash unavailable (e.g. via PATH manipulation or a host without bash); assert exit code 0 and stderr says skipped",
+        "When bash is available and HARNESS_SMOKE_TEST is unset, assert layer2 either runs the script (exiting with whatever the script returns) or short-circuits via the script's own gate"
+      ],
+      "threshold": "layer2 dispatches to smoke-test.sh; layer3 dispatches to meta-test.sh; both skip cleanly without bash."
+    },
+    {
+      "id": "C5-15",
+      "category": "skill-update",
+      "blocking": true,
+      "description": ".claude/skills/harness-test/SKILL.md is minimally updated to mention `python tests/run-all.py [layer]` as an alternative to the existing bash command. The original bash invocation line MUST remain present and primary; YAML frontmatter MUST remain unchanged.",
+      "testMethod": "file inspection + diff",
+      "testSteps": [
+        "Open .claude/skills/harness-test/SKILL.md",
+        "Assert the file contains the substring 'bash tests/run-all.sh' (original command preserved)",
+        "Assert the file contains the substring 'python tests/run-all.py' (new alternative documented)",
+        "Assert the YAML frontmatter (name, description, argument-hint, allowed-tools) is byte-identical to the prior version",
+        "Assert no other skill file under .claude/skills/ was modified (git diff)"
+      ],
+      "threshold": "Both commands present; frontmatter unchanged; only harness-test/SKILL.md modified among skill files."
+    },
+    {
+      "id": "C5-16",
+      "category": "no-modify-bash",
+      "blocking": true,
+      "description": "No .sh or .ps1 file under harness/, .claude/, or tests/ is modified during this sprint. The bash orchestrator and all shell helpers remain untouched.",
+      "testMethod": "git diff",
+      "testSteps": [
+        "Run: git diff <pre-sprint-ref> HEAD --name-only",
+        "Assert no path matching '*.sh' or '*.ps1' appears in the diff",
+        "Assert no path under .claude/agents/ appears",
+        "Assert no path under .claude/skills/ appears EXCEPT .claude/skills/harness-test/SKILL.md"
+      ],
+      "threshold": "Diff contains zero .sh/.ps1 changes; only one skill file changed."
+    },
+    {
+      "id": "C5-17",
+      "category": "regression",
+      "blocking": true,
+      "description": "All Sprint 1-4 layer1 tests continue to pass: test_utils.py, test_invoke.py, test_git.py, test_planner.py, test_contract.py, test_generator.py, test_evaluator.py.",
+      "testMethod": "unittest",
+      "testSteps": [
+        "Run: python tests/run-all.py layer1",
+        "Assert exit code 0",
+        "Assert the run reports passing tests for at least: test_utils, test_invoke, test_git, test_planner, test_contract, test_generator, test_evaluator (in addition to the new test_hooks and test_pipeline)",
+        "Total test count must be >= the prior count (35 + 22 + 19 + 40 = 116 minimum) plus the new tests"
+      ],
+      "threshold": "Zero regression failures; total test count >= 116 + new tests."
+    },
+    {
+      "id": "C5-18",
+      "category": "stdlib-only",
+      "blocking": true,
+      "description": "harness/orchestrate.py and the new test files import only from the Python standard library (no third-party packages).",
+      "testMethod": "static analysis",
+      "testSteps": [
+        "Parse harness/orchestrate.py with ast and collect all top-level imports",
+        "Assert every imported module is in the stdlib set (argparse, json, subprocess, pathlib, re, os, sys, shutil, datetime, tempfile, unittest, time, signal, logging, typing, etc.) or is a local harness.lib.* module",
+        "Repeat for tests/layer1/test_hooks.py and tests/layer1/test_pipeline.py",
+        "Assert none of these files contain 'pip install', 'requirements.txt' references, or non-stdlib imports"
+      ],
+      "threshold": "Zero non-stdlib third-party imports in the new files."
+    },
+    {
+      "id": "C5-19",
+      "category": "cross-platform",
+      "blocking": true,
+      "description": "Path handling in orchestrate.py uses pathlib.Path consistently; no hardcoded forward-slash paths, no os.system shell calls. The orchestrator runs on Windows (no bash dependency at runtime for the new-build flow excepting hook tests).",
+      "testMethod": "code-review",
+      "testSteps": [
+        "Grep harness/orchestrate.py for: 'os.system(', backtick subshells, '/tmp/' literals, hardcoded '\\\\' Windows paths -- assert none present",
+        "Assert pathlib.Path is imported and used for path construction",
+        "Assert subprocess.run/Popen calls use list-form argv (no shell=True except where unavoidable for git-on-Windows quoting -- and even then, document it)"
+      ],
+      "threshold": "No shell=True; no hardcoded /tmp paths; pathlib used for paths."
+    },
+    {
+      "id": "C5-20",
+      "category": "cost-cap",
+      "blocking": true,
+      "description": "The orchestrator wires the cost-cap check (utils.check_cost_cap) into the sprint loop and respects the --max-cost flag, matching orchestrate.sh behavior.",
+      "testMethod": "code-review + unit test",
+      "testSteps": [
+        "Grep orchestrate.py for 'check_cost_cap' or equivalent reference; assert it is called inside the sprint loop",
+        "Assert --max-cost is propagated into config.json (TOTAL_COST_CAP) so check_cost_cap reads the user-supplied value",
+        "Unit test: invoke check_cost_cap with a fake cost-log.json that exceeds the cap; assert orchestrate-side handling (process exit or warning matches bash)"
+      ],
+      "threshold": "check_cost_cap called per sprint; --max-cost wired through to config.json."
+    },
+    {
+      "id": "C5-21",
+      "category": "runs-from-anywhere",
+      "blocking": true,
+      "description": "harness/orchestrate.py works correctly when invoked from any cwd (HARNESS_ROOT is determined from the script's __file__, not from cwd) and stages .claude/* into cwd, not into HARNESS_ROOT.",
+      "testMethod": "subprocess",
+      "testSteps": [
+        "Create a tempdir distinct from HARNESS_ROOT",
+        "From inside the tempdir, run: python <abs HARNESS_ROOT>/harness/orchestrate.py --dry-run \"Build x\"",
+        "Assert exit code 0",
+        "Assert tempdir/.claude/agents/ now exists (staged from HARNESS_ROOT)",
+        "Assert HARNESS_ROOT itself was not modified (no new files outside the project's own .git tracking)"
+      ],
+      "threshold": "Orchestrator independent of cwd; staging targets cwd; HARNESS_ROOT untouched."
+    },
+    {
+      "id": "C5-22",
+      "category": "regression",
+      "blocking": true,
+      "description": "Existing bash tests (tests/layer1/*.bats) are unmodified; tests/helpers/test-helper.bash and tests/helpers/claude (POSIX shim) and tests/helpers/claude.cmd are unmodified.",
+      "testMethod": "git diff",
+      "testSteps": [
+        "Run: git diff <pre-sprint-ref> HEAD -- tests/layer1/*.bats tests/helpers/test-helper.bash tests/helpers/claude tests/helpers/claude.cmd",
+        "Assert empty diff for all of these"
+      ],
+      "threshold": "Zero changes to listed files."
+    }
+  ],
+  "files": [
+    "harness/orchestrate.py (NEW)",
+    "tests/layer1/test_hooks.py (NEW)",
+    "tests/layer1/test_pipeline.py (NEW)",
+    "tests/run-all.py (MODIFIED -- finalize layer2/layer3 dispatch to smoke-test.sh / meta-test.sh)",
+    ".claude/skills/harness-test/SKILL.md (MODIFIED -- minimal additive note about python tests/run-all.py)",
+    "harness-state/handoff.json (MODIFIED -- mark sprint 5 complete on PASS)"
+  ],
+  "notes": [
+    "Use subprocess.run/Popen with list argv; never shell=True.",
+    "Resolve HARNESS_ROOT as Path(__file__).resolve().parent.parent so the script works from any cwd.",
+    "The integration test in test_pipeline.py must use the existing mock_claude infrastructure (PATH shim) to avoid real claude calls.",
+    "The hooks test must remain decoupled from any Python implementation of hooks -- it tests the existing bash hooks via subprocess, full stop.",
+    "MAX_CONTRACT_ROUNDS=3 and MAX_SPRINT_ATTEMPTS=3 are the bash defaults and must be preserved.",
+    "Default config: PROJECT_TYPE=general, CONTEXT_STRATEGY=reset, MODEL=opus, TOTAL_COST_CAP=200, COST_CAP_PER_SPRINT=25.",
+    "The skill update is additive only: the bash command line stays as the headline; the python alternative is added as an additional sentence or bullet."
+  ]
+}

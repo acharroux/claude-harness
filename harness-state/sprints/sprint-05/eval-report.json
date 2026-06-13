@@ -1,0 +1,154 @@
+{
+  "sprintNumber": 5,
+  "sprintName": "Orchestrator, Integration Tests, and Skill Update",
+  "attempt": 2,
+  "overallResult": "PASS",
+  "passCount": 22,
+  "failCount": 0,
+  "criteriaResults": [
+    {
+      "id": "C5-01",
+      "result": "PASS",
+      "evidence": "python harness/orchestrate.py --help exits 0 with usage output. ast.parse succeeds; file is syntactically valid Python."
+    },
+    {
+      "id": "C5-02",
+      "result": "PASS",
+      "evidence": "All 11 long flags appear in --help output: --extend, --fix, --refactor, --regression, --resume, --project-type, --context-strategy, --model, --max-cost, --from-sprint, --dry-run, plus positional user_prompt."
+    },
+    {
+      "id": "C5-03",
+      "result": "PASS",
+      "evidence": "python orchestrate.py --bogus-flag exits 2 with 'unrecognized arguments'. python orchestrate.py with no args exits 2 with 'a project description is required for mode=new ...'."
+    },
+    {
+      "id": "C5-04",
+      "result": "PASS",
+      "evidence": "python harness/orchestrate.py 'test' --dry-run prints 'DRY RUN -- would execute mode: new' and exits 0. test_pipeline.test_dry_run_exits_zero verifies in tempdir."
+    },
+    {
+      "id": "C5-05",
+      "result": "PASS",
+      "evidence": "All six modes dispatch correctly via --dry-run: new, extend, fix, refactor, resume, regression. orchestrate.py:177 resolve_mode() returns correct mode tuple. Functions run_new_build (line 294), run_extend (414), run_fix (479), run_refactor (568), run_resume (650) all defined; regression dispatched inline at line 791."
+    },
+    {
+      "id": "C5-06",
+      "result": "PASS",
+      "evidence": "stage_claude_assets defined at orchestrate.py:77 with _copy_no_clobber helper at line 63. Appends '.claude/agents/' and '.claude/skills/' to .gitignore if missing (line 106-116). Idempotent (checks substring before appending)."
+    },
+    {
+      "id": "C5-07",
+      "result": "PASS",
+      "evidence": "_git_auto_init at orchestrate.py:710 uses 'git init -b main', sets user.email/user.name (defaults harness@claude-harness.dev / Claude Harness, env-overridable via GIT_EMAIL/GIT_NAME), creates README.md and initial commit. Only called from run_new_build (line 312); other modes do not call it. --dry-run returns before stage_claude_assets() so no init occurs in dry-run."
+    },
+    {
+      "id": "C5-08",
+      "result": "PASS",
+      "evidence": "_run_sprint at orchestrate.py:200. MAX_SPRINT_ATTEMPTS=3 at line 49. Loop calls negotiate_contract (241), invoke_generator (254), invoke_evaluator (264), merge_sprint (266), fail_sprint_attempt (257/260/280), update_handoff (269), update_progress (270/281/285), update_regression_registry (271). Blocked branch at line 255-258 returns 2 without retry. Verified by 141-test suite passing."
+    },
+    {
+      "id": "C5-09",
+      "result": "PASS",
+      "evidence": "tests/layer1/test_pipeline.py has 8 test methods: test_pipeline_creates_product_spec, _sprint_plan, _sprint01_eval_report, _sprint02_eval_report, _handoff_has_completed_sprints, _cost_log, _sprint01_pass_tag, test_dry_run_exits_zero. Runs orchestrate.py as subprocess with mock_claude on PATH. Completes within 60s threshold. All 8 tests pass."
+    },
+    {
+      "id": "C5-10",
+      "result": "PASS",
+      "evidence": "test_pipeline_creates_sprint01_pass_tag asserts git tag 'harness/sprint-01/pass' exists after pipeline run. Test passes."
+    },
+    {
+      "id": "C5-11",
+      "result": "PASS",
+      "evidence": "tests/layer1/test_hooks.py: 16 test methods across 3 classes (OnGeneratorStopTests=5, OnEvaluatorStopTests=7, OnStopTests=4). Each maps to a bats scenario by name. Tests pass when bash is available; verified in run-all.py output."
+    },
+    {
+      "id": "C5-12",
+      "result": "PASS",
+      "evidence": "All 3 test classes decorated with @unittest.skipIf(_BASH is None, _SKIP_MSG) where _BASH = shutil.which('bash'). Conditional, not blanket. _SKIP_MSG = 'bash not available on this system'."
+    },
+    {
+      "id": "C5-13",
+      "result": "PASS",
+      "evidence": "All test_hooks tests pass against the existing harness/hooks/*.sh scripts (verified in 141-test run). git diff harness/sprint-04/pass HEAD -- '*.sh' '*.ps1' is empty -- no hook script modified."
+    },
+    {
+      "id": "C5-14",
+      "result": "PASS",
+      "evidence": "FIXED in commit 2c25952. tests/run-all.py:68 run_layer2() now calls _delegate_to_bash('layer2/smoke-test.sh'). tests/run-all.py:72 run_layer3() now calls _delegate_to_bash('layer3/meta-test.sh'). _delegate_to_bash builds path as TESTS_DIR / script_name (line 53), so the relative subdirectory paths resolve correctly. When bash is unavailable, _delegate_to_bash prints an informative skip message and returns 0 (lines 54-59)."
+    },
+    {
+      "id": "C5-15",
+      "result": "PASS",
+      "evidence": "FIXED in commit 2c25952. .claude/skills/harness-test/SKILL.md line 11 retains 'Run the harness test suite: `bash tests/run-all.sh $ARGUMENTS`' (original primary command preserved). New line 13 adds 'Alternatively (cross-platform): `python tests/run-all.py $ARGUMENTS`' as additive note. YAML frontmatter (lines 1-9: name, description, argument-hint, allowed-tools) unchanged. git diff harness/sprint-04/pass harness/rewrite-in-python-sprint-05 --name-only shows only .claude/skills/harness-test/SKILL.md under .claude/skills/ -- no other skill file modified."
+    },
+    {
+      "id": "C5-16",
+      "result": "PASS",
+      "evidence": "git diff harness/sprint-04/pass harness/rewrite-in-python-sprint-05 -- '*.sh' '*.ps1' is empty. No .sh or .ps1 file modified. Diff name-only shows no path under .claude/agents/ and only .claude/skills/harness-test/SKILL.md under .claude/skills/."
+    },
+    {
+      "id": "C5-17",
+      "result": "PASS",
+      "evidence": "python tests/run-all.py layer1 -> 'Ran 141 tests in 91.592s OK'. All Sprint 1-4 modules included: test_utils (35), test_invoke (22), test_git (19), test_planner+contract+generator+evaluator (40), plus new test_hooks (16) and test_pipeline (8) plus 1 additional = 141. Total >= 116 + new tests. Zero failures."
+    },
+    {
+      "id": "C5-18",
+      "result": "PASS",
+      "evidence": "ast inspection of orchestrate.py, test_hooks.py, test_pipeline.py shows only stdlib imports: argparse, json, os, shutil, subprocess, sys, time, pathlib, typing, tempfile, unittest, plus harness.lib.* (local). No third-party imports. No 'pip install' or 'requirements.txt' references."
+    },
+    {
+      "id": "C5-19",
+      "result": "PASS",
+      "evidence": "grep harness/orchestrate.py for 'shell=True', 'os.system(', '/tmp/', backtick subshells -- ZERO matches. pathlib.Path imported (line 25) and used throughout. All subprocess.run/Popen calls use list-form argv."
+    },
+    {
+      "id": "C5-20",
+      "result": "PASS",
+      "evidence": "orchestrate.py:319 sets os.environ['TOTAL_COST_CAP'] from --max-cost. utils.py:240 reads it into config.json totalCostCap. utils.check_cost_cap called inside sprint loop in run_new_build:368, run_extend:466, run_resume:687."
+    },
+    {
+      "id": "C5-21",
+      "result": "PASS",
+      "evidence": "orchestrate.py:34-35 HARNESS_ROOT = Path(__file__).resolve().parent.parent. test_pipeline.py runs orchestrate.py from a temp cwd != HARNESS_ROOT and the integration succeeds (8 pipeline tests pass). stage_claude_assets() targets cwd/.claude (line 88), not HARNESS_ROOT."
+    },
+    {
+      "id": "C5-22",
+      "result": "PASS",
+      "evidence": "git diff harness/sprint-04/pass harness/rewrite-in-python-sprint-05 --name-only shows no .bats files, no tests/helpers/test-helper.bash, no tests/helpers/claude, no tests/helpers/claude.cmd. Zero changes to listed files."
+    }
+  ],
+  "regressionResults": [
+    {
+      "sprint": 1,
+      "result": "PASS",
+      "evidence": "test_utils (35 tests) all pass in 141-test run."
+    },
+    {
+      "sprint": 2,
+      "result": "PASS",
+      "evidence": "test_invoke (22 tests) all pass in 141-test run."
+    },
+    {
+      "sprint": 3,
+      "result": "PASS",
+      "evidence": "test_git (19 tests) all pass in 141-test run."
+    },
+    {
+      "sprint": 4,
+      "result": "PASS",
+      "evidence": "test_planner/contract/generator/evaluator (40 tests) all pass in 141-test run."
+    }
+  ],
+  "holisticScores": {
+    "correctness": 9,
+    "robustness": 8,
+    "codeQuality": 8,
+    "documentation": 8,
+    "testing": 9
+  },
+  "summary": "Sprint 5 PASSES on the second attempt after two surgical fixes (commit 2c25952): (1) tests/run-all.py run_layer2 and run_layer3 now correctly dispatch to layer2/smoke-test.sh and layer3/meta-test.sh respectively via _delegate_to_bash with TESTS_DIR-relative paths; (2) .claude/skills/harness-test/SKILL.md now contains an additive 'Alternatively (cross-platform): `python tests/run-all.py $ARGUMENTS`' line below the preserved primary 'bash tests/run-all.sh' command, with YAML frontmatter byte-identical. The 141-test layer1 suite passes cleanly in 91.6s. All 22 blocking criteria pass; all 4 regression sprints (1-4) pass. Git history shows both the original sprint commit (752d7ad) and the fix commit (2c25952) on harness/rewrite-in-python-sprint-05. No .sh or .ps1 file was modified anywhere in the sprint diff. Sprint 5 is ready to merge.",
+  "nextActions": [
+    "Merge harness/rewrite-in-python-sprint-05 into harness/rewrite-in-python and tag harness/sprint-05/pass.",
+    "Update harness-state/handoff.json to mark sprint 5 complete and refresh git.latestTag."
+  ]
+}

@@ -1,0 +1,318 @@
+{
+  "sprintNumber": 1,
+  "sprintName": "Core Utilities and Test Infrastructure",
+  "summary": "Port harness/lib/utils.sh to harness/lib/utils.py (Python 3.8+ stdlib only) with byte-for-byte equivalent state-file output, build the tests/run-all.py CLI runner, the tests/helpers/test_helper.py HarnessTestCase base class, and tests/layer1/test_utils.py covering every scenario in tests/layer1/test-utils.bats. No .sh or .ps1 file may be modified. Existing tests/helpers/fixtures/ are reused unchanged.",
+  "files": [
+    "harness/__init__.py",
+    "harness/lib/__init__.py",
+    "harness/lib/utils.py",
+    "tests/__init__.py",
+    "tests/run-all.py",
+    "tests/helpers/__init__.py",
+    "tests/helpers/test_helper.py",
+    "tests/layer1/__init__.py",
+    "tests/layer1/test_utils.py"
+  ],
+  "regressionSprints": [],
+  "outOfScope": [
+    "harness/lib/invoke.py and the claude wrapper (Sprint 2)",
+    "harness/lib/git.py (Sprint 3)",
+    "Phase modules: planner/contract/generator/evaluator (Sprint 4)",
+    "harness/orchestrate.py (Sprint 5)",
+    "Modifying any .sh or .ps1 file",
+    "Modifying tests/helpers/fixtures/ contents",
+    "Replacing or modifying agent or skill definitions",
+    "Adding third-party Python dependencies"
+  ],
+  "criteria": [
+    {
+      "id": "C1-01",
+      "category": "structure",
+      "blocking": true,
+      "description": "All required Python source files exist with the expected module layout (harness/__init__.py, harness/lib/__init__.py, harness/lib/utils.py, tests/run-all.py, tests/helpers/test_helper.py, tests/layer1/test_utils.py).",
+      "testMethod": "filesystem-inspection",
+      "testSteps": [
+        "Stat each path listed in files[]",
+        "Confirm each file is non-empty"
+      ],
+      "threshold": "Every listed file exists and is non-empty"
+    },
+    {
+      "id": "C1-02",
+      "category": "constraint",
+      "blocking": true,
+      "description": "No .sh or .ps1 file is modified relative to the parent commit. tests/helpers/fixtures/ contents are unchanged.",
+      "testMethod": "git-diff",
+      "testSteps": [
+        "Run git diff --name-only against the merge base for the sprint branch",
+        "Assert no path matches *.sh or *.ps1",
+        "Assert no path under tests/helpers/fixtures/ appears"
+      ],
+      "threshold": "Zero modified .sh, .ps1, or fixture files"
+    },
+    {
+      "id": "C1-03",
+      "category": "constraint",
+      "blocking": true,
+      "description": "harness/lib/utils.py imports only from the Python 3.8+ standard library.",
+      "testMethod": "static-analysis",
+      "testSteps": [
+        "Parse harness/lib/utils.py with the ast module",
+        "Collect all top-level imports",
+        "Confirm every imported module is part of the Python 3.8 standard library (json, re, os, sys, pathlib, datetime, shutil, tempfile, subprocess, typing, etc.)"
+      ],
+      "threshold": "No third-party imports detected"
+    },
+    {
+      "id": "C1-04",
+      "category": "function-port",
+      "blocking": true,
+      "description": "slugify(s) lowercases, replaces non-alphanumeric runs with single hyphens, strips leading/trailing hyphens, and truncates to at most 50 characters. slugify('Hello World') == 'hello-world'; slugify('Build a web-app!!!') == 'build-a-web-app'; slugify('a    b    c') == 'a-b-c'; slugify('---test---') == 'test'; slugify(80-char input) length <= 50.",
+      "testMethod": "unit-test",
+      "testSteps": [
+        "Call utils.slugify with each fixture input",
+        "Assert exact equality / length bound"
+      ],
+      "threshold": "All five slugify cases pass"
+    },
+    {
+      "id": "C1-05",
+      "category": "function-port",
+      "blocking": true,
+      "description": "sprint_pad(n) returns a two-digit zero-padded string. sprint_pad(3) == '03'; sprint_pad(12) == '12'.",
+      "testMethod": "unit-test",
+      "testSteps": [
+        "Call utils.sprint_pad with int and string inputs",
+        "Assert returned string equals expected"
+      ],
+      "threshold": "Both cases pass"
+    },
+    {
+      "id": "C1-06",
+      "category": "function-port",
+      "blocking": true,
+      "description": "sprint_dir(n) returns the path 'harness-state/sprints/sprint-NN' using forward slashes (matching bash output) regardless of OS. sprint_dir(1) == 'harness-state/sprints/sprint-01'; sprint_dir(10) == 'harness-state/sprints/sprint-10'.",
+      "testMethod": "unit-test",
+      "testSteps": [
+        "Call utils.sprint_dir(1) and utils.sprint_dir(10)",
+        "Assert returned strings match expected literals"
+      ],
+      "threshold": "Both cases pass"
+    },
+    {
+      "id": "C1-07",
+      "category": "function-port",
+      "blocking": true,
+      "description": "json_read(file, field) accepts jq-style field expressions ('.userPrompt', '.git.harnessBranch') and returns the value as a string. Missing field yields '' or 'null' (matching bash tolerance). Missing file yields ''. Never raises on missing input.",
+      "testMethod": "unit-test",
+      "testSteps": [
+        "Install fixture config-general.json and read .userPrompt -> 'Build a test project'",
+        "Install fixture handoff-after-sprint1.json and read .git.harnessBranch -> 'harness/test-project'",
+        "Read .nonexistent -> '' or 'null'",
+        "Read missing file -> ''"
+      ],
+      "threshold": "All four json_read cases pass"
+    },
+    {
+      "id": "C1-08",
+      "category": "function-port",
+      "blocking": true,
+      "description": "file_exists(path) returns True only when the path exists, is a regular file, and has non-zero size. Missing file -> False. Empty file -> False. Non-empty file -> True.",
+      "testMethod": "unit-test",
+      "testSteps": [
+        "Create a non-empty file, assert True",
+        "Test a path that does not exist, assert False",
+        "Touch an empty file, assert False"
+      ],
+      "threshold": "All three cases pass"
+    },
+    {
+      "id": "C1-09",
+      "category": "function-port",
+      "blocking": true,
+      "description": "init_harness_state(prompt, project_type) creates harness-state/config.json, harness-state/cost-log.json, harness-state/regression/registry.json, and harness-state/progress.md inside the configured HARNESS_STATE directory.",
+      "testMethod": "unit-test",
+      "testSteps": [
+        "Call init_harness_state('Test project', 'general')",
+        "Assert all four files exist"
+      ],
+      "threshold": "All four files present"
+    },
+    {
+      "id": "C1-10",
+      "category": "function-port",
+      "blocking": true,
+      "description": "init_harness_state writes config.json with userPrompt and projectType set from arguments. Calling init_harness_state('Build something', 'cli-tool') yields .userPrompt == 'Build something' and .projectType == 'cli-tool'. cost-log.json has empty invocations. registry.json has empty sprints object.",
+      "testMethod": "unit-test",
+      "testSteps": [
+        "Call init_harness_state and json.load each produced file",
+        "Assert config fields, len(invocations) == 0, len(sprints) == 0"
+      ],
+      "threshold": "All assertions pass"
+    },
+    {
+      "id": "C1-11",
+      "category": "function-port",
+      "blocking": true,
+      "description": "update_handoff(sprint_num, merge_sha, tag, harness_branch=None) creates harness-state/handoff.json with the standard schema if missing, appends the sprint number to completedSprints (deduplicated), increments currentSprint, and updates git.latestTag, git.latestMergeSha, and (when provided) git.harnessBranch.",
+      "testMethod": "unit-test",
+      "testSteps": [
+        "Call update_handoff(1, 'abc123', 'harness/sprint-01/pass') with no pre-existing handoff -> file exists, completedSprints length == 1",
+        "Install handoff-initial.json fixture, call update_handoff(1, 'abc123', 'harness/sprint-01/pass') -> completedSprints[0] == 1, git.latestTag == 'harness/sprint-01/pass'",
+        "Call update_handoff twice with same sprint -> completedSprints length stays 1"
+      ],
+      "threshold": "All three update_handoff scenarios pass"
+    },
+    {
+      "id": "C1-12",
+      "category": "function-port",
+      "blocking": true,
+      "description": "update_regression_registry(sprint_num) reads harness-state/sprints/sprint-NN/contract.json, extracts the criteria[].id list, and writes it under .sprints[str(sprint_num)] of harness-state/regression/registry.json with contractPath set to 'sprints/sprint-NN/contract.json'. No-op (no error, no key added) when the contract is missing.",
+      "testMethod": "unit-test",
+      "testSteps": [
+        "Install registry-empty.json and contract-sprint01.json fixtures, call update_regression_registry(1), assert .sprints['1'].criteria has length 3",
+        "On a fresh registry without a contract, call update_regression_registry(1), assert .sprints stays empty"
+      ],
+      "threshold": "Both scenarios pass"
+    },
+    {
+      "id": "C1-13",
+      "category": "function-port",
+      "blocking": true,
+      "description": "update_progress(sprint_num, status, attempt=1, merge_sha='') appends a sprint section to harness-state/progress.md including the sprint number, status, attempt, and (when provided) merge commit. Does not crash if sprint-plan.json is missing.",
+      "testMethod": "unit-test",
+      "testSteps": [
+        "Call init_harness_state then update_progress(1, 'PASS', 1, 'abc123')",
+        "Read progress.md and assert it contains 'Sprint 01', 'PASS', 'abc123'"
+      ],
+      "threshold": "All assertions pass"
+    },
+    {
+      "id": "C1-14",
+      "category": "function-port",
+      "blocking": true,
+      "description": "log_cost(role, sprint, output_json) appends an entry to harness-state/cost-log.json's invocations array. Entry includes role, sprint, timestamp (ISO-8601 UTC), inputTokens and outputTokens parsed from output_json (zero when fields missing or input is invalid JSON).",
+      "testMethod": "unit-test",
+      "testSteps": [
+        "Initialize harness state, call log_cost('planner', 1, '{\"usage\":{\"input_tokens\":10,\"output_tokens\":20}}')",
+        "Assert invocations length == 1 and entry has role='planner', sprint=1, inputTokens=10, outputTokens=20",
+        "Call log_cost with empty/invalid JSON, assert tokens default to 0 and the call does not raise"
+      ],
+      "threshold": "Both log_cost scenarios pass"
+    },
+    {
+      "id": "C1-15",
+      "category": "function-port",
+      "blocking": false,
+      "description": "check_cost_cap() reads totalCostCap from config.json and emits an info-level cost-tracking notice without raising. Returns None.",
+      "testMethod": "unit-test",
+      "testSteps": [
+        "Initialize harness state, call check_cost_cap()",
+        "Assert no exception raised"
+      ],
+      "threshold": "Function returns without error"
+    },
+    {
+      "id": "C1-16",
+      "category": "function-port",
+      "blocking": true,
+      "description": "Colored log helpers log_info, log_success, log_warn, log_error, log_phase write the [harness] prefix and message to stderr. Color codes are emitted only when stderr is a TTY and NO_COLOR is unset; otherwise plain text is emitted. Setting NO_COLOR to '1' suppresses ANSI escapes.",
+      "testMethod": "unit-test",
+      "testSteps": [
+        "Capture stderr while calling log_info/success/warn/error/phase under NO_COLOR=1",
+        "Assert each captured chunk contains '[harness]' and the message text",
+        "Assert no '\\x1b[' ANSI escape sequences appear when NO_COLOR is set"
+      ],
+      "threshold": "All five helpers behave correctly with NO_COLOR=1"
+    },
+    {
+      "id": "C1-17",
+      "category": "test-infra",
+      "blocking": true,
+      "description": "tests/helpers/test_helper.py defines a HarnessTestCase(unittest.TestCase) that, in setUp, creates an isolated tempfile.TemporaryDirectory, chdir into it, sets HARNESS_STATE='harness-state', creates the harness-state/sprints and harness-state/regression subdirs, and exposes self.test_temp_dir, self.fixture_dir, self.mock_claude_log, self.mock_claude_state_dir as attributes. tearDown restores cwd and removes the temp dir.",
+      "testMethod": "introspection",
+      "testSteps": [
+        "Import HarnessTestCase",
+        "Run a smoke subclass that asserts cwd != original after setUp, harness-state subdirs exist, env vars are set",
+        "After tearDown, cwd is restored and temp dir is gone"
+      ],
+      "threshold": "Smoke subclass passes"
+    },
+    {
+      "id": "C1-18",
+      "category": "test-infra",
+      "blocking": true,
+      "description": "HarnessTestCase exposes install_fixture(name, dest) and init_test_repo() helpers. install_fixture copies tests/helpers/fixtures/<name> to dest (creating parent dirs). init_test_repo runs `git init -b main` in the temp dir, sets test user, creates README.md and harness-state subdirs, makes the initial commit. Both helpers operate inside the isolated temp dir.",
+      "testMethod": "unit-test",
+      "testSteps": [
+        "Call install_fixture('config-general.json', 'harness-state/config.json'), assert file present and JSON-parseable",
+        "Call init_test_repo() then `git rev-parse --is-inside-work-tree` returns 'true' and HEAD exists"
+      ],
+      "threshold": "Both helpers behave correctly"
+    },
+    {
+      "id": "C1-19",
+      "category": "test-infra",
+      "blocking": true,
+      "description": "tests/run-all.py is an executable Python CLI that accepts one positional argument: 'layer1', 'layer2', 'layer3', or 'all'. For 'layer1' it discovers and runs unittest tests under tests/layer1/. For 'layer2'/'layer3' it may delegate to existing shell scripts or skip with a clear message (Sprint 5 wires those fully); 'all' runs layer1 in this sprint. Exit code 0 on success, non-zero on failure. `python tests/run-all.py` with no arg or an invalid arg prints usage to stderr and exits non-zero.",
+      "testMethod": "subprocess-cli",
+      "testSteps": [
+        "Run `python tests/run-all.py layer1` and assert exit code 0",
+        "Run `python tests/run-all.py` (no arg) and assert exit code != 0",
+        "Run `python tests/run-all.py bogus` and assert exit code != 0"
+      ],
+      "threshold": "All three CLI invocations behave as specified"
+    },
+    {
+      "id": "C1-20",
+      "category": "test-coverage",
+      "blocking": true,
+      "description": "tests/layer1/test_utils.py contains a Python test for every numbered scenario in tests/layer1/test-utils.bats (22 cases): 5 slugify, 2 sprint_pad, 2 sprint_dir, 4 json_read, 3 file_exists, 4 init_harness_state, 3 update_handoff, 2 update_regression_registry. Tests run inside HarnessTestCase so they are isolated.",
+      "testMethod": "test-collection",
+      "testSteps": [
+        "Run `python -m unittest discover -s tests/layer1 -p 'test_utils.py' -v`",
+        "Assert 22 or more test methods are collected and all pass"
+      ],
+      "threshold": ">=22 test methods, 0 failures, 0 errors"
+    },
+    {
+      "id": "C1-21",
+      "category": "integration",
+      "blocking": true,
+      "description": "Running `python tests/run-all.py layer1` from the repository root exits with status 0 and prints an OK summary to stdout/stderr.",
+      "testMethod": "subprocess-cli",
+      "testSteps": [
+        "From repo root, run `python tests/run-all.py layer1`",
+        "Assert returncode == 0",
+        "Assert combined output contains 'OK' or equivalent unittest pass marker"
+      ],
+      "threshold": "Exit code 0 and pass marker present"
+    },
+    {
+      "id": "C1-22",
+      "category": "cross-platform",
+      "blocking": true,
+      "description": "All paths produced by utils.py for filesystem operations use pathlib or os.path so the code runs on Windows. The string output of sprint_dir uses forward slashes (the bash format); internal filesystem operations use os.path.join / pathlib so they work with native separators. No hard-coded backslashes in source.",
+      "testMethod": "static-analysis",
+      "testSteps": [
+        "grep harness/lib/utils.py for backslash literals -> none in path construction",
+        "On the current Windows host, run `python tests/run-all.py layer1` and confirm exit 0"
+      ],
+      "threshold": "No backslash path literals; layer1 passes on Windows"
+    },
+    {
+      "id": "C1-23",
+      "category": "regression-isolation",
+      "blocking": true,
+      "description": "Each test method in tests/layer1/test_utils.py runs in its own temporary working directory; tests do not pollute the repository. After running the suite, `git status` in the repo shows only the new/modified files committed by the sprint (no leftover harness-state mutations, no temp dirs).",
+      "testMethod": "subprocess-cli",
+      "testSteps": [
+        "Capture `git status --porcelain` before running tests",
+        "Run `python tests/run-all.py layer1`",
+        "Capture `git status --porcelain` again",
+        "Assert the two outputs are identical"
+      ],
+      "threshold": "git status unchanged by running the test suite"
+    }
+  ]
+}
