@@ -21,7 +21,12 @@ _PROJECT = _HERE.parent.parent
 HOOKS_DIR = _PROJECT / "harness" / "hooks"
 
 _BASH = shutil.which("bash")
-_SKIP_MSG = "bash not available on this system"
+_JQ = shutil.which("jq")
+_SKIP_MSG = (
+    "bash not available on this system" if _BASH is None
+    else "jq not available on this system (hooks require jq)"
+)
+_SKIP = _BASH is None or _JQ is None
 
 
 def _run_hook(hook_name: str, cwd: str, env: dict) -> int:
@@ -38,7 +43,7 @@ def _run_hook(hook_name: str, cwd: str, env: dict) -> int:
     return result.returncode
 
 
-@unittest.skipIf(_BASH is None, _SKIP_MSG)
+@unittest.skipIf(_SKIP, _SKIP_MSG)
 class OnGeneratorStopTests(unittest.TestCase):
     """Port of on-generator-stop.sh bats tests."""
 
@@ -91,7 +96,7 @@ class OnGeneratorStopTests(unittest.TestCase):
         self.assertEqual(_run_hook("on-generator-stop.sh", self.tmp, self.env), 2)
 
 
-@unittest.skipIf(_BASH is None, _SKIP_MSG)
+@unittest.skipIf(_SKIP, _SKIP_MSG)
 class OnEvaluatorStopTests(unittest.TestCase):
     """Port of on-evaluator-stop.sh bats tests."""
 
@@ -168,7 +173,7 @@ class OnEvaluatorStopTests(unittest.TestCase):
         self.assertEqual(_run_hook("on-evaluator-stop.sh", self.tmp, self.env), 2)
 
 
-@unittest.skipIf(_BASH is None, _SKIP_MSG)
+@unittest.skipIf(_SKIP, _SKIP_MSG)
 class OnStopTests(unittest.TestCase):
     """Port of on-stop.sh bats tests."""
 
