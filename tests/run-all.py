@@ -5,15 +5,13 @@ Usage:
     python tests/run-all.py [layer1|layer2|layer3|all]
 
 layer1 runs Python unittest discovery under tests/layer1/.
-layer2 / layer3 delegate to the existing shell scripts where bash is available;
-on Windows-without-bash they print an informative skip message and return 0.
+layer2 / layer3 are bash-based and must be run directly:
+    bash tests/run-all.sh layer2   (set HARNESS_SMOKE_TEST=1 first)
+    bash tests/run-all.sh layer3   (set HARNESS_META_TEST=1 first)
 """
 
 from __future__ import annotations
 
-import os
-import shutil
-import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -47,52 +45,28 @@ def run_layer1() -> int:
     return 0 if result.wasSuccessful() else 1
 
 
-def _delegate_to_bash(script_name: str) -> int:
-    """Delegate layer2/layer3 to the existing bash runner if available."""
-    bash = shutil.which("bash")
-    script = TESTS_DIR / script_name
-    if bash is None or not script.is_file():
-        sys.stderr.write(
-            f"[harness] {script_name} not run: bash unavailable on this host.\n"
-            f"[harness] Skipping.\n"
-        )
-        return 0
-    # Use a relative path from REPO_ROOT so bash sees a POSIX-friendly path
-    # even on Windows (avoids C:\... path mangling by Git Bash).
-    rel = script.relative_to(REPO_ROOT).as_posix()
-    proc = subprocess.run(
-        [bash, rel],
-        cwd=str(REPO_ROOT),
-    )
-    return proc.returncode
-
-
 def run_layer2() -> int:
-    if os.environ.get("HARNESS_SMOKE_TEST") != "1":
-        sys.stderr.write(
-            "[harness] layer2 skipped. Set HARNESS_SMOKE_TEST=1 to run (~$10-20).\n"
-        )
-        return 0
-    return _delegate_to_bash("layer2/smoke-test.sh")
+    sys.stderr.write(
+        "[harness] layer2 is a bash smoke test — run it directly:\n"
+        "  bash tests/run-all.sh layer2   (requires HARNESS_SMOKE_TEST=1)\n"
+    )
+    return 0
 
 
 def run_layer3() -> int:
-    if os.environ.get("HARNESS_META_TEST") != "1":
-        sys.stderr.write(
-            "[harness] layer3 skipped. Set HARNESS_META_TEST=1 to run (~$50-100).\n"
-        )
-        return 0
-    return _delegate_to_bash("layer3/meta-test.sh")
+    sys.stderr.write(
+        "[harness] layer3 is a bash meta test — run it directly:\n"
+        "  bash tests/run-all.sh layer3   (requires HARNESS_META_TEST=1)\n"
+    )
+    return 0
 
 
 def run_all() -> int:
     rc = run_layer1()
     if rc != 0:
         return rc
-    # layer2 / layer3 are wired in Sprint 5; surface a skip but don't fail
-    rc2 = run_layer2()
-    if rc2 != 0:
-        return rc2
+    run_layer2()
+    run_layer3()
     return 0
 
 
