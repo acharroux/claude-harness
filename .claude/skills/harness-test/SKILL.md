@@ -10,6 +10,8 @@ allowed-tools: Read, Bash, Glob, Grep
 
 Run the harness test suite: `bash tests/run-all.sh $ARGUMENTS`
 
+Alternatively (cross-platform): `python tests/run-all.py $ARGUMENTS`
+
 ## Layers
 
 - **layer1** (default): Unit and integration tests with mocked Claude. Fast, free.
