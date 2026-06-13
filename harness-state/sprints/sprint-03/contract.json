@@ -1,0 +1,329 @@
+{
+  "sprintNumber": 3,
+  "sprintName": "Git Operations",
+  "summary": "Port harness/lib/git.sh to harness/lib/git.py (stdlib subprocess only) preserving exact branch and tag naming, and port tests/layer1/test-git.bats to tests/layer1/test_git.py with the same scenarios in isolated temp git repos.",
+  "criteria": [
+    {
+      "id": "C3-01",
+      "category": "structure",
+      "blocking": true,
+      "description": "harness/lib/git.py exists and is importable as `from harness.lib import git` from the project root with no third-party deps.",
+      "testMethod": "automated-import",
+      "testSteps": [
+        "Run: python -c \"import sys; sys.path.insert(0, '.'); from harness.lib import git\"",
+        "Exit code 0"
+      ],
+      "threshold": "Module imports cleanly with stdlib only"
+    },
+    {
+      "id": "C3-02",
+      "category": "api",
+      "blocking": true,
+      "description": "git.py exposes all nine top-level functions: create_harness_branch, create_sprint_branch, merge_sprint, fail_sprint_attempt, commit_harness_state, create_pr, create_fix_pr, create_issue, generate_pr_body.",
+      "testMethod": "automated-introspection",
+      "testSteps": [
+        "Import harness.lib.git",
+        "For each name in the list above, assert hasattr(git, name) and callable(getattr(git, name))"
+      ],
+      "threshold": "All nine names resolve to callables"
+    },
+    {
+      "id": "C3-03",
+      "category": "behavior",
+      "blocking": true,
+      "description": "create_harness_branch('test-project') in a fresh repo creates and checks out branch `harness/test-project` and returns that exact name.",
+      "testMethod": "automated-pytest-equivalent",
+      "testSteps": [
+        "init_test_repo()",
+        "result = git.create_harness_branch('test-project')",
+        "assert result == 'harness/test-project'",
+        "assert current branch (git branch --show-current) == 'harness/test-project'"
+      ],
+      "threshold": "Both assertions pass"
+    },
+    {
+      "id": "C3-04",
+      "category": "behavior",
+      "blocking": true,
+      "description": "create_harness_branch is idempotent: calling it after the branch already exists (from main) returns 0/the branch name and re-checks out the existing branch without error.",
+      "testMethod": "automated-pytest-equivalent",
+      "testSteps": [
+        "create_harness_branch('test-project')",
+        "git checkout main",
+        "Re-call create_harness_branch('test-project') -- must not raise",
+        "Branch is checked out again"
+      ],
+      "threshold": "Second call succeeds without exception"
+    },
+    {
+      "id": "C3-05",
+      "category": "behavior",
+      "blocking": true,
+      "description": "create_sprint_branch('harness/test-project', 1) creates and checks out `harness/test-project-sprint-01` (two-digit padded) and returns that exact string.",
+      "testMethod": "automated-pytest-equivalent",
+      "testSteps": [
+        "create_harness_branch('test-project')",
+        "result = create_sprint_branch('harness/test-project', 1)",
+        "assert result == 'harness/test-project-sprint-01'",
+        "assert current branch == 'harness/test-project-sprint-01'"
+      ],
+      "threshold": "Sprint number is zero-padded to width 2; branch name matches exactly"
+    },
+    {
+      "id": "C3-06",
+      "category": "behavior",
+      "blocking": true,
+      "description": "create_sprint_branch wipes any prior sprint branch with the same name. Files committed on the stale branch must NOT be present after the new sprint branch is created (it branches fresh from the harness branch).",
+      "testMethod": "automated-pytest-equivalent",
+      "testSteps": [
+        "Create harness branch, then create sprint-01 branch and commit old.txt on it, then checkout harness branch",
+        "Call create_sprint_branch('harness/test-project', 1)",
+        "Assert os.path.exists('old.txt') is False",
+        "Assert returned name == 'harness/test-project-sprint-01'"
+      ],
+      "threshold": "old.txt is gone; branch is fresh from harness"
+    },
+    {
+      "id": "C3-07",
+      "category": "behavior",
+      "blocking": true,
+      "description": "merge_sprint(harness_branch, 1, 1) returns to the harness branch, performs a no-ff merge of the sprint branch with commit message `harness(sprint-01): merge (PASS, attempt 1)`, and returns the merge SHA.",
+      "testMethod": "automated-pytest-equivalent",
+      "testSteps": [
+        "Setup harness branch + sprint-01 branch with one committed file",
+        "merge_sha = merge_sprint('harness/test-project', 1, 1)",
+        "Current branch == 'harness/test-project'",
+        "git log --oneline contains 'merge'",
+        "merge_sha is non-empty 40-char hex (or matches git rev-parse HEAD)"
+      ],
+      "threshold": "All assertions pass"
+    },
+    {
+      "id": "C3-08",
+      "category": "behavior",
+      "blocking": true,
+      "description": "merge_sprint creates the tag `harness/sprint-01/pass` (zero-padded sprint num) at the merge commit.",
+      "testMethod": "automated-pytest-equivalent",
+      "testSteps": [
+        "After merge_sprint(...,1,1) call, run `git tag -l`",
+        "Assert 'harness/sprint-01/pass' in the tag list"
+      ],
+      "threshold": "Tag exists with exactly that name"
+    },
+    {
+      "id": "C3-09",
+      "category": "behavior",
+      "blocking": true,
+      "description": "merge_sprint deletes the merged sprint branch.",
+      "testMethod": "automated-pytest-equivalent",
+      "testSteps": [
+        "After merge_sprint, run `git rev-parse --verify harness/test-project-sprint-01`",
+        "Assert non-zero exit (branch gone)"
+      ],
+      "threshold": "Sprint branch no longer exists"
+    },
+    {
+      "id": "C3-10",
+      "category": "behavior",
+      "blocking": true,
+      "description": "fail_sprint_attempt(harness_branch, 1, 1) creates the tag `harness/sprint-01/attempt-1`.",
+      "testMethod": "automated-pytest-equivalent",
+      "testSteps": [
+        "Setup harness + sprint-01 branch with commit",
+        "fail_sprint_attempt('harness/test-project', 1, 1)",
+        "Assert 'harness/sprint-01/attempt-1' in `git tag -l`"
+      ],
+      "threshold": "Tag exists with exactly that name"
+    },
+    {
+      "id": "C3-11",
+      "category": "behavior",
+      "blocking": true,
+      "description": "fail_sprint_attempt deletes the failed sprint branch (force-delete) and switches back to the harness branch.",
+      "testMethod": "automated-pytest-equivalent",
+      "testSteps": [
+        "After fail_sprint_attempt, `git rev-parse --verify harness/test-project-sprint-01` is non-zero",
+        "Current branch == 'harness/test-project'"
+      ],
+      "threshold": "Branch gone and current branch is the harness branch"
+    },
+    {
+      "id": "C3-12",
+      "category": "behavior",
+      "blocking": true,
+      "description": "fail_sprint_attempt stashes uncommitted changes during checkout (matches bash: `git stash -q; git checkout; git stash drop -q`) so it does not fail when there are dirty files from the failed attempt.",
+      "testMethod": "automated-pytest-equivalent",
+      "testSteps": [
+        "Create harness + sprint-01 branch, commit a base file, then write an UNCOMMITTED change",
+        "fail_sprint_attempt(...) must not raise",
+        "Current branch == 'harness/test-project'"
+      ],
+      "threshold": "No exception, returns to harness branch"
+    },
+    {
+      "id": "C3-13",
+      "category": "behavior",
+      "blocking": true,
+      "description": "commit_harness_state('msg') stages files under HARNESS_STATE and commits them with the given message when there are changes.",
+      "testMethod": "automated-pytest-equivalent",
+      "testSteps": [
+        "Write 'state data' to harness-state/progress.md",
+        "commit_harness_state('harness: test commit')",
+        "git log --oneline -1 contains 'harness: test commit'"
+      ],
+      "threshold": "Commit exists with the exact message"
+    },
+    {
+      "id": "C3-14",
+      "category": "behavior",
+      "blocking": true,
+      "description": "commit_harness_state is a no-op (does not raise, does not create empty commit) when there are no staged changes.",
+      "testMethod": "automated-pytest-equivalent",
+      "testSteps": [
+        "In a clean repo, call commit_harness_state('harness: nothing')",
+        "Function returns normally; HEAD commit message is unchanged"
+      ],
+      "threshold": "No exception and no new commit added"
+    },
+    {
+      "id": "C3-15",
+      "category": "behavior",
+      "blocking": true,
+      "description": "generate_pr_body() produces a markdown body containing the sprint table header and a row reflecting eval-report status. With a fixture eval-report-pass.json installed for sprint-01, the output contains both the literal 'Sprint' header and 'PASS'.",
+      "testMethod": "automated-pytest-equivalent",
+      "testSteps": [
+        "install_fixture('config-general.json', 'harness-state/config.json')",
+        "install_fixture('sprint-plan-2sprint.json', 'harness-state/sprint-plan.json')",
+        "install_fixture('eval-report-pass.json', 'harness-state/sprints/sprint-01/eval-report.json')",
+        "body = generate_pr_body()",
+        "Assert 'Sprint' in body and 'PASS' in body"
+      ],
+      "threshold": "Both substrings present in generated body"
+    },
+    {
+      "id": "C3-16",
+      "category": "naming",
+      "blocking": true,
+      "description": "Two-digit zero-padded sprint number is used in branch and tag names for ALL functions (sprint 1 -> '01', sprint 9 -> '09', sprint 10 -> '10'). Verified by exercising sprint number 9 against create_sprint_branch and merge_sprint.",
+      "testMethod": "automated-pytest-equivalent",
+      "testSteps": [
+        "create_sprint_branch('harness/p', 9) returns 'harness/p-sprint-09'",
+        "After merge, tag 'harness/sprint-09/pass' exists"
+      ],
+      "threshold": "Padding always two digits"
+    },
+    {
+      "id": "C3-17",
+      "category": "graceful-degradation",
+      "blocking": true,
+      "description": "create_pr / create_fix_pr / create_issue do not raise when `gh` is missing OR when there is no `origin` remote. They emit a warning (via the harness logger) and return without error.",
+      "testMethod": "automated-pytest-equivalent",
+      "testSteps": [
+        "In an isolated repo with no origin remote, call create_pr('harness/x','x','body')",
+        "No exception; function returns",
+        "Same for create_fix_pr and create_issue (which should return empty string when skipped)"
+      ],
+      "threshold": "All three callable safely without remote/gh"
+    },
+    {
+      "id": "C3-18",
+      "category": "tests",
+      "blocking": true,
+      "description": "tests/layer1/test_git.py exists and contains a Python equivalent for every numbered scenario in tests/layer1/test-git.bats (12 bats scenarios). Mapping: create-branch, create-branch-idempotent, sprint-branch-creates, sprint-branch-cleanup, merge-creates-merge-commit, merge-creates-tag, merge-deletes-branch, fail-tags-attempt, fail-deletes-branch, fail-returns-to-harness, commit-state-commits, commit-state-noop-when-clean, generate-pr-body-contains-table.",
+      "testMethod": "automated-introspection",
+      "testSteps": [
+        "Inspect test_git.py via unittest discovery: count test methods >= 13",
+        "Cross-check scenario coverage with the bats file by name (each bats @test maps to a test_* method)"
+      ],
+      "threshold": ">= 13 test methods, every bats scenario covered"
+    },
+    {
+      "id": "C3-19",
+      "category": "tests",
+      "blocking": true,
+      "description": "All test_git.py tests pass when run via the project's run-all.py.",
+      "testMethod": "automated-test-run",
+      "testSteps": [
+        "Run: python tests/run-all.py layer1 (or python -m unittest tests.layer1.test_git)",
+        "Exit code 0",
+        "All test_git tests pass (no failures, no errors, no unexpected skips)"
+      ],
+      "threshold": "Zero failures and zero errors"
+    },
+    {
+      "id": "C3-20",
+      "category": "tests",
+      "blocking": true,
+      "description": "test_git.py tests use isolated temp git repos via test_helper.HarnessTestCase / init_test_repo() (no test mutates the host repo). Verified by ensuring tests inherit from HarnessTestCase and call self.init_test_repo() in setUp or per-test.",
+      "testMethod": "static-analysis",
+      "testSteps": [
+        "Grep test_git.py for `from tests.helpers.test_helper import HarnessTestCase` (or equivalent import)",
+        "Grep for `init_test_repo`",
+        "Inspect class definitions: every TestCase inherits HarnessTestCase"
+      ],
+      "threshold": "Both imports/uses present and TestCase subclasses HarnessTestCase"
+    },
+    {
+      "id": "C3-21",
+      "category": "regression",
+      "blocking": true,
+      "description": "Sprints 1 and 2 still pass: utils tests and invoke tests must continue to succeed after this sprint's changes.",
+      "testMethod": "automated-test-run",
+      "testSteps": [
+        "Run: python -m unittest tests.layer1.test_utils tests.layer1.test_invoke",
+        "Exit code 0; all previously-passing tests still pass"
+      ],
+      "threshold": "Zero new failures in test_utils or test_invoke"
+    },
+    {
+      "id": "C3-22",
+      "category": "constraints",
+      "blocking": true,
+      "description": "No .sh or .ps1 file is modified by this sprint. The bash git.sh and bats test-git.bats remain byte-identical to their pre-sprint state.",
+      "testMethod": "git-diff",
+      "testSteps": [
+        "Run: git diff harness/sprint-02/pass -- 'harness/lib/git.sh' 'tests/layer1/test-git.bats' 'harness/**/*.sh' 'harness/**/*.ps1'",
+        "Output must be empty"
+      ],
+      "threshold": "No changes to any .sh or .ps1 file"
+    },
+    {
+      "id": "C3-23",
+      "category": "stdlib",
+      "blocking": true,
+      "description": "harness/lib/git.py uses only Python 3.8+ standard library. No `import` statements reference third-party packages (no requests, no gitpython, no click, etc.).",
+      "testMethod": "static-analysis",
+      "testSteps": [
+        "Grep top-of-file imports in harness/lib/git.py",
+        "Allowed: subprocess, os, sys, pathlib, re, json, shutil, typing, __future__, datetime, and local (from harness.lib import utils / from . import utils)",
+        "No other third-party imports"
+      ],
+      "threshold": "Imports limited to stdlib + local utils"
+    }
+  ],
+  "files": [
+    {
+      "path": "harness/lib/git.py",
+      "purpose": "Python port of harness/lib/git.sh (subprocess-based git/gh operations)"
+    },
+    {
+      "path": "tests/layer1/test_git.py",
+      "purpose": "Python port of tests/layer1/test-git.bats covering all branch/merge/tag/PR-body scenarios"
+    }
+  ],
+  "outOfScope": [
+    "Modifying harness/lib/git.sh or any other .sh / .ps1 file",
+    "Replacing git or gh CLIs with a Python git library (e.g., GitPython, dulwich)",
+    "Adding network calls or live PR/issue creation in tests (gh paths must be exercised only via graceful-fallback assertions in test envs without remote)",
+    "Implementing the orchestrator, planner, contract, generator, or evaluator phases (Sprints 4 and 5)",
+    "Implementing or porting hooks"
+  ],
+  "regressionSprints": [1, 2],
+  "notes": [
+    "Branch and tag names MUST match bash byte-for-byte: harness/<slug>, harness/<slug>-sprint-NN (zero-padded), tags harness/sprint-NN/pass and harness/sprint-NN/attempt-K.",
+    "merge_sprint must perform a no-ff merge with message 'harness(sprint-NN): merge (PASS, attempt K)' and stage any uncommitted evaluator artifacts on the sprint branch first (matches bash: `git add -A; git diff --cached --quiet || git commit -m 'harness(sprint-NN): evaluator artifacts'`).",
+    "fail_sprint_attempt must `git stash` then `git checkout` then `git stash drop` to tolerate dirty working trees from failed evaluator runs.",
+    "create_pr / create_fix_pr / create_issue must check `shutil.which('gh')` and `git remote get-url origin` and fall back with a logged warning, never raise.",
+    "Tests must run in isolated temp repos created by init_test_repo() in HarnessTestCase to avoid mutating the host repo."
+  ]
+}
