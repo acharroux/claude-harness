@@ -54,11 +54,14 @@ def _delegate_to_bash(script_name: str) -> int:
     if bash is None or not script.is_file():
         sys.stderr.write(
             f"[harness] {script_name} not run: bash unavailable on this host.\n"
-            f"[harness] Skipping (Sprint 5 will fully wire this layer).\n"
+            f"[harness] Skipping.\n"
         )
         return 0
+    # Use a relative path from REPO_ROOT so bash sees a POSIX-friendly path
+    # even on Windows (avoids C:\... path mangling by Git Bash).
+    rel = script.relative_to(REPO_ROOT).as_posix()
     proc = subprocess.run(
-        [bash, str(script)],
+        [bash, rel],
         cwd=str(REPO_ROOT),
     )
     return proc.returncode
