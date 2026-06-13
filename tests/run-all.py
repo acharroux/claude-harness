@@ -68,10 +68,20 @@ def _delegate_to_bash(script_name: str) -> int:
 
 
 def run_layer2() -> int:
+    if os.environ.get("HARNESS_SMOKE_TEST") != "1":
+        sys.stderr.write(
+            "[harness] layer2 skipped. Set HARNESS_SMOKE_TEST=1 to run (~$10-20).\n"
+        )
+        return 0
     return _delegate_to_bash("layer2/smoke-test.sh")
 
 
 def run_layer3() -> int:
+    if os.environ.get("HARNESS_META_TEST") != "1":
+        sys.stderr.write(
+            "[harness] layer3 skipped. Set HARNESS_META_TEST=1 to run (~$50-100).\n"
+        )
+        return 0
     return _delegate_to_bash("layer3/meta-test.sh")
 
 
