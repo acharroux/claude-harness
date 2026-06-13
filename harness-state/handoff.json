@@ -1,18 +1,31 @@
 {
   "projectName": "harness-python-rewrite",
-  "completedSprints": [],
-  "currentSprint": 1,
-  "totalSprints": 0,
-  "completedFeatures": [],
-  "keyFiles": {},
-  "techStack": {},
+  "completedSprints": [1],
+  "currentSprint": 2,
+  "totalSprints": 5,
+  "completedFeatures": [
+    "harness/lib/utils.py — port of utils.sh (all utility functions)",
+    "tests/helpers/test_helper.py — HarnessTestCase base class",
+    "tests/layer1/test_utils.py — 35 Python tests porting test-utils.bats",
+    "tests/run-all.py — Python test runner CLI"
+  ],
+  "keyFiles": {
+    "utils": "harness/lib/utils.py",
+    "testHelper": "tests/helpers/test_helper.py",
+    "testUtils": "tests/layer1/test_utils.py",
+    "testRunner": "tests/run-all.py"
+  },
+  "techStack": {
+    "language": "Python 3.8+",
+    "deps": "stdlib only"
+  },
   "outstandingIssues": [],
   "devServerCommand": "",
   "devServerPort": 0,
   "git": {
     "harnessBranch": "harness/rewrite-in-python",
-    "latestTag": "",
-    "latestMergeSha": "",
+    "latestTag": "harness/sprint-01/pass",
+    "latestMergeSha": "d2bd13b03aca019e5bebdd2e1a16c742b3ca8d3e",
     "prNumbers": []
   }
 }
