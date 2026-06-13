@@ -682,7 +682,15 @@ function Invoke-Resume {
     Write-LogPhase "HARNESS: RESUME from sprint $($script:FromSprint)"
 
     $handoffPath = Join-Path $script:HarnessState 'handoff.json'
+    if (-not (Test-Path -LiteralPath $handoffPath)) {
+        Write-LogError 'No handoff.json found -- nothing to resume. Run without --resume to start a new project.'
+        exit 1
+    }
     $harnessBranch = Read-JsonField -File $handoffPath -Field '.git.harnessBranch'
+    if ([string]::IsNullOrWhiteSpace($harnessBranch)) {
+        Write-LogError 'handoff.json is missing .git.harnessBranch -- cannot determine which branch to resume.'
+        exit 1
+    }
     Invoke-NativeCommand -FilePath 'git' -Arguments @('checkout', $harnessBranch)
 
     $planPath = Join-Path $script:HarnessState 'sprint-plan.json'
@@ -704,6 +712,8 @@ function Invoke-Resume {
     Write-LogPhase 'RESUME COMPLETE'
     $configPath = Join-Path $script:HarnessState 'config.json'
     $userPrompt = Read-JsonField -File $configPath -Field '.userPrompt'
+    if ([string]::IsNullOrWhiteSpace($userPrompt)) { $userPrompt = $harnessBranch }
+    if ([string]::IsNullOrWhiteSpace($userPrompt)) { $userPrompt = 'harness-project' }
     $slug = ConvertTo-Slug -Value $userPrompt
     $prBody = Build-PRBody
     New-HarnessPR -HarnessBranch $harnessBranch -ProjectSlug $slug -PrBody $prBody
