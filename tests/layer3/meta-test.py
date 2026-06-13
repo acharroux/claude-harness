@@ -90,7 +90,8 @@ def main() -> int:
     _run("git", "add", "-A")
     _run("git", "commit", "-q", "-m", "meta test baseline")
 
-    log_path = dest / "meta-output.log"
+    # Log lives outside the git repo (dest) so it never makes the working tree dirty
+    log_path = dest.parent / "meta-output.log"
     start = time.time()
 
     # Isolated venv so any pip installs stay inside the test directory
