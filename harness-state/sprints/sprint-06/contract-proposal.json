@@ -1,0 +1,337 @@
+{
+  "sprintNumber": 6,
+  "sprintName": "Run Lifecycle",
+  "theme": "Permadeath, save/load (single slot), run summary, seeded/daily runs",
+  "features": ["F6", "F14"],
+  "dependsOn": [2, 3, 5],
+  "summary": "Close the loop on the playable core: a run has a clear beginning, middle, and end. When the player dies, the game enters a stable game-over state that surfaces a run summary (cause of death, floors reached, turns taken, monsters slain). Players can save and resume a run from a single save slot; loading a saved run that has ended (death) is rejected. The CLI gains a daily-seed mode (`--daily`) that maps today's UTC date to a deterministic seed everyone shares for that day, and a `--seed` flag (already present from Sprint 2) is preserved end-to-end with monsters/items so the same seed yields a byte-identical world. The save format is plain JSON; corrupt or schema-mismatched saves are rejected with a clear error rather than crashing the game. Save-scumming is prevented by the single-slot rule: saving overwrites; loading consumes (deletes the save) so a death cannot be reverted by reloading the pre-death save.",
+  "assumptions": [
+    "Sprints 1, 2, 3, 4, and 5 are merged. The codebase has: a seedable World/Floor with rooms/corridors/doors/stairs, an Entity hierarchy with HP/attack/defense, a deterministic combat module, FOV, items+inventory, monsters with 4 distinct AI behaviors, FOV-based aggro, monster turn loop, and a `game_over` flag triggered on player death.",
+    "If any of those sprints is partially missing in tree, Sprint 6 must add only the minimum needed for its own criteria (e.g., a `game_over` attribute, a turns counter, a kill counter), but must not regress existing functionality.",
+    "Pytest remains the test runner; tests live under `tests/`.",
+    "The save file lives at a documented path. The default is `./whisperdeep_save.json` in the current working directory; the path is overridable via env var or CLI flag so tests can isolate saves.",
+    "The game.py main loop is the canonical place to detect death and mark the game as ended; the CLI is the canonical place to render the run summary.",
+    "Daily seeds are derived deterministically from the UTC calendar date (year, month, day) so two players running `--daily` on the same UTC date get the same world.",
+    "Glyph and rendering conventions from Sprint 2 and Sprint 5 are unchanged."
+  ],
+  "criteria": [
+    {
+      "id": "C1",
+      "category": "code-structure",
+      "description": "A dedicated run-lifecycle / save module exists (e.g., `whisperdeep/save.py` or `whisperdeep/persistence.py`) and is importable. Save-related logic is not buried in cli.py or game.py monoliths.",
+      "testMethod": "static",
+      "testSteps": [
+        "Locate a Python module under `whisperdeep/` with a name containing 'save', 'persist', or 'lifecycle'.",
+        "Run `python -c \"import whisperdeep.<that-module>\"` and confirm exit code 0.",
+        "Confirm at least one of `save_game`/`load_game` (or `save_run`/`load_run`) is exported."
+      ],
+      "threshold": "Module exists, imports cleanly, exposes save and load entry points."
+    },
+    {
+      "id": "C2",
+      "category": "api",
+      "description": "Game exposes a `game_over` (or equivalent boolean attribute) that is False at start and True after the player's HP reaches 0. After game_over becomes True, `try_move`/`descend`/`ascend` are no-ops (return False) and do not mutate player position.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Construct a Game; assert `game.game_over` is False.",
+        "Set the player's HP to 1, place an adjacent monster strong enough to kill in one hit, run a monster turn so the player dies.",
+        "Assert `game.game_over` is True.",
+        "Snapshot player.x, player.y, call `game.try_move(1, 0)`, and verify the position did not change and the call returned False.",
+        "Call `game.descend()` and `game.ascend()` and verify both return False without mutating state."
+      ],
+      "threshold": "game_over flag flips on death; player actions are inert post-death."
+    },
+    {
+      "id": "C3",
+      "category": "api",
+      "description": "Game exposes a `cause_of_death` (or equivalent) attribute. When the player is killed by a monster, this attribute is a non-empty string referencing the killer (e.g., the monster's name).",
+      "testMethod": "unit",
+      "testSteps": [
+        "Set up a kill scenario where a named monster (e.g., 'goblin') reduces the player's HP to 0.",
+        "After death, read `game.cause_of_death`.",
+        "Verify it is a non-empty string and that the killer's name appears in it (case-insensitive substring match acceptable)."
+      ],
+      "threshold": "cause_of_death is set, non-empty, and references the killer's name."
+    },
+    {
+      "id": "C4",
+      "category": "api",
+      "description": "Game tracks per-run statistics suitable for the run summary: turns taken, monsters slain (kills), deepest floor reached.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Construct a fresh Game; verify `game.turns == 0`, `game.kills == 0`, and `game.deepest_floor == 0` (or equivalent attributes/method).",
+        "Perform 3 player moves and verify `turns` advanced by exactly 3.",
+        "Manually kill a monster (deal lethal damage) and verify `kills` advanced by exactly 1.",
+        "Place the player on a downstairs and call `descend()`; verify `deepest_floor` advanced to 1."
+      ],
+      "threshold": "All three statistics exist and update correctly."
+    },
+    {
+      "id": "C5",
+      "category": "feature",
+      "description": "Run summary: the lifecycle module exposes a function (e.g., `run_summary(game) -> str` or `run_summary(game) -> dict`) that returns a representation containing at minimum: the seed, turns taken, kills, deepest floor reached, and cause of death.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Kill the player as in C2.",
+        "Call `run_summary(game)`.",
+        "Verify the result references the seed, the turn count, the kill count, the deepest floor, and the cause of death (substring match or dict-key check).",
+        "Verify the function is total: it does not raise on a fresh, not-yet-dead game (it may return a partial summary or a sentinel)."
+      ],
+      "threshold": "run_summary returns a representation containing seed, turns, kills, deepest_floor, and cause_of_death after death."
+    },
+    {
+      "id": "C6",
+      "category": "cli",
+      "description": "When the game ends in a death (during a non-headless or headless run), the CLI prints the run summary to stdout and exits 0 (not as an error).",
+      "testMethod": "integration",
+      "testSteps": [
+        "Run `python -m whisperdeep --seed 1 --headless --simulate-death` (or equivalent flag/path the implementer documents) so the CLI deterministically produces a death.",
+        "Capture stdout and exit code.",
+        "Verify exit code is 0.",
+        "Verify stdout contains the seed, turn count, kills, deepest floor, and cause-of-death markers."
+      ],
+      "threshold": "Death produces a clean exit with a printed summary; the implementer must document exactly how to reach this state in headless tests."
+    },
+    {
+      "id": "C7",
+      "category": "feature",
+      "description": "Save: `save_game(game, path)` (or equivalent) writes a JSON file at `path` containing enough state to fully reconstruct the run: master seed, world dimensions, num_floors, current floor index, player (position + stats + inventory), per-floor monster lists (positions + types + hp), per-floor item lists, turns, kills, deepest_floor.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Construct a Game from a known seed; perform a few moves and a kill so non-default state exists.",
+        "Save to a temp path.",
+        "Open the JSON file and verify keys for: seed, num_floors, width, height, current_floor_index, player (with x, y, hp, max_hp, inventory), monsters (per floor list with x, y, name/type, hp), items (per floor with x, y, type), turns, kills, deepest_floor.",
+        "Verify the JSON is parseable and the file size is non-trivial (>200 bytes)."
+      ],
+      "threshold": "Save writes a JSON document containing all required keys."
+    },
+    {
+      "id": "C8",
+      "category": "feature",
+      "description": "Load: `load_game(path)` reconstructs a Game equivalent to the one that was saved. Equivalence means the same seed, the same player position/stats/inventory, the same set of monsters at the same positions with the same HP, the same items, the same floor index, and the same turn/kill/deepest_floor counters.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Construct game A from seed 42; do some moves; kill a monster.",
+        "Snapshot all state required for equivalence (player, monsters per floor, items per floor, counters, current_floor_index).",
+        "Save A to a temp file.",
+        "Call `load_game(path)` to produce game B.",
+        "Verify every snapshot field on B matches A.",
+        "Issue an identical move on both A and B and verify the resulting state still matches."
+      ],
+      "threshold": "Loaded game is functionally indistinguishable from the saved game; subsequent identical actions produce identical results."
+    },
+    {
+      "id": "C9",
+      "category": "feature",
+      "description": "Single save slot with overwrite-on-save semantics: calling `save_game` twice on the same path replaces the prior contents, and only the most recent save is retained on disk.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Save game A to path P; record file mtime + a small distinguishing field (e.g., player.x).",
+        "Mutate the game (e.g., move the player) to produce game A'.",
+        "Save A' to the same path P.",
+        "Re-load from P and verify the loaded game matches A', not A.",
+        "Verify only one save file exists at P (no `.bak` or sibling slots are required)."
+      ],
+      "threshold": "Single-slot semantics: save overwrites; load returns the latest write."
+    },
+    {
+      "id": "C10",
+      "category": "feature",
+      "description": "Anti-save-scumming: loading a save consumes it (deletes the file or marks it consumed) so the player cannot reload to undo a death. Saving while game_over is True is rejected (does not write a save) so a dead state cannot be persisted and revived.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Save a live game to path P.",
+        "Verify the save file exists.",
+        "Call `load_game(P)`; verify it returns a Game.",
+        "Verify the save file no longer exists at P (consumed on load).",
+        "On the loaded game, kill the player.",
+        "Call `save_game(game, P)` and verify it raises a documented exception OR returns False AND no file is written at P.",
+        "Confirm there is no file at P at the end."
+      ],
+      "threshold": "Loads consume the save; saves are refused while game_over is True."
+    },
+    {
+      "id": "C11",
+      "category": "feature",
+      "description": "Corrupt-save handling: `load_game` on a missing file, malformed JSON, or schema-mismatched JSON raises a clear, documented exception (e.g., `SaveLoadError`) and does NOT crash with a raw `json.JSONDecodeError`, `KeyError`, or `FileNotFoundError`.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Call `load_game('definitely_does_not_exist.json')` and assert it raises the project's documented save-load exception (a subclass of Exception named in the module).",
+        "Write `{this is not json}` to a temp file and call `load_game` on it; assert the same exception is raised.",
+        "Write `{\"seed\": 1}` (valid JSON, missing required keys) and call `load_game` on it; assert the same exception is raised.",
+        "Verify in each case the exception's message references the file path or schema reason."
+      ],
+      "threshold": "All three failure modes raise the project's documented save/load exception with an informative message."
+    },
+    {
+      "id": "C12",
+      "category": "cli",
+      "description": "CLI flag `--save PATH` saves on a clean (non-death) exit, and `--load PATH` loads instead of generating a fresh world. `--load` and `--seed`/`--daily` are mutually exclusive (or the flag combination is documented and consistent).",
+      "testMethod": "integration",
+      "testSteps": [
+        "Run `python -m whisperdeep --seed 5 --headless --save tmp.json` so the run starts and exits cleanly with a save written.",
+        "Verify `tmp.json` exists and parses as JSON.",
+        "Run `python -m whisperdeep --load tmp.json --headless`; verify exit code 0 and that the rendered initial frame matches the loaded state (e.g., the same seed appears in stdout or the same dungeon hash).",
+        "Run `python -m whisperdeep --load tmp.json --seed 9` and verify the CLI either errors out with a clear message about flag conflict OR documents which flag wins (the contract does not enforce which choice; it requires consistency)."
+      ],
+      "threshold": "--save persists state on exit; --load reconstructs it; flag interaction is documented."
+    },
+    {
+      "id": "C13",
+      "category": "feature",
+      "description": "Daily seed: the lifecycle module exposes a function (e.g., `daily_seed(date)` or `daily_seed()` defaulting to today UTC) that returns a deterministic int derived from the UTC calendar date (year, month, day). Two calls with the same date return the same int; calls with consecutive days return different ints.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Import the daily_seed function.",
+        "Call it with a fixed date (e.g., `date(2026, 6, 12)`) twice; verify both calls return the same int.",
+        "Call it with `date(2026, 6, 13)` and verify the result differs from the 2026-06-12 result.",
+        "Verify the result is an int suitable for use as a master seed (positive, fits in a normal Python int)."
+      ],
+      "threshold": "daily_seed is deterministic per UTC date and varies day-to-day."
+    },
+    {
+      "id": "C14",
+      "category": "cli",
+      "description": "CLI flag `--daily` runs the game with today's daily seed. Two invocations of `--daily` (within the same UTC day) produce identical initial dungeon + monster placement.",
+      "testMethod": "integration",
+      "testSteps": [
+        "Run `python -m whisperdeep --daily --headless` and capture the initial frame to a string.",
+        "Run the same command again and capture again.",
+        "Verify the two frames are byte-identical.",
+        "Verify the printed banner / frame includes the actual numeric seed used (so the player can reproduce or share it).",
+        "Verify `--daily` and `--seed N` together either error or document which wins."
+      ],
+      "threshold": "--daily produces a reproducible same-day run and surfaces the numeric seed."
+    },
+    {
+      "id": "C15",
+      "category": "determinism",
+      "description": "End-to-end seed reproducibility with monsters and items: `--seed N --headless` produces an identical initial frame across runs and across processes. Different seeds produce different frames.",
+      "testMethod": "integration",
+      "testSteps": [
+        "Run `python -m whisperdeep --seed 7 --headless` twice in separate processes and capture stdout.",
+        "Verify the two outputs are byte-identical.",
+        "Run `python -m whisperdeep --seed 8 --headless` and verify the output differs from the seed-7 output."
+      ],
+      "threshold": "Same seed -> identical frames across processes; different seeds -> different frames."
+    },
+    {
+      "id": "C16",
+      "category": "feature",
+      "description": "Save round-trip preserves determinism: a save taken at turn T, loaded into a fresh process, then run forward by the same scripted action sequence, produces the same final state as continuing the original game without saving.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Construct game A from seed 11; perform 5 scripted moves.",
+        "Save game A to a temp path; record A's full state.",
+        "Continue game A: perform 5 more scripted moves; record A's final state.",
+        "Construct game B by `load_game(path)`; perform the same 5 moves.",
+        "Compare B's final state to A's final state: player position, monsters' positions and HP per floor, items, counters."
+      ],
+      "threshold": "Saved-then-loaded run, advanced by the same actions, equals the never-saved run."
+    },
+    {
+      "id": "C17",
+      "category": "feature",
+      "description": "Per-run end signals: the game distinguishes a normal interactive quit (e.g., user pressed `q`) from a death. Quitting saves the run by default (resumable). Dying does not save (or actively clears the save). After a death exit, no save file remains on disk at the configured save path.",
+      "testMethod": "integration",
+      "testSteps": [
+        "Run a session that exits via the documented death-simulation path with `--save tmp.json`.",
+        "After exit, assert `tmp.json` does not exist (or, if it exists, it is empty/marker-only and `load_game` rejects it).",
+        "Run a session that exits via a clean quit with `--save tmp2.json`.",
+        "After exit, assert `tmp2.json` exists and `load_game` accepts it."
+      ],
+      "threshold": "Death exit leaves no resumable save; clean quit leaves a resumable save."
+    },
+    {
+      "id": "C18",
+      "category": "regression",
+      "description": "Sprint 1-5 functionality is preserved: the game still launches, the dungeon still generates with the same seed semantics, FOV still hides unseen tiles, items can still be picked up, monsters still spawn from spawn tables and take turns, and bump-to-attack still works in both directions.",
+      "testMethod": "integration",
+      "testSteps": [
+        "Run `pytest tests/` and verify every existing test passes.",
+        "Run `python -m whisperdeep --seed 1 --headless` and verify it exits 0 with a non-empty frame.",
+        "In code: instantiate a Game from seed 1; verify the floor has rooms (Sprint 2 regression).",
+        "Verify FOV/fog-of-war is still applied to the rendered frame (Sprint 3 regression).",
+        "Place an item on the player's tile and pick it up (Sprint 4 regression).",
+        "Verify at least one monster has been spawned on floor 0 and exposes a `take_turn` (Sprint 5 regression)."
+      ],
+      "threshold": "All prior tests pass; all five regression checks succeed."
+    },
+    {
+      "id": "C19",
+      "category": "tests",
+      "description": "Automated test suite includes >=10 NEW tests targeting Sprint 6 functionality: at minimum two for save/load round-trip, one for save-scumming prevention, one for corrupt-save handling, one for daily-seed determinism, one for run-summary content, one for cause_of_death population, one for the death-exit signal, one for kill counter, one for deepest_floor counter.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Locate test files under `tests/` whose names reference 'save', 'load', 'lifecycle', 'summary', 'daily', or 'sprint06'.",
+        "Run `pytest tests/` and verify all tests pass.",
+        "Count tests in those Sprint-6 test files and verify >=10 distinct test functions cover the listed scenarios."
+      ],
+      "threshold": "All tests pass; >=10 Sprint-6 tests covering the listed scenarios."
+    },
+    {
+      "id": "C20",
+      "category": "documentation",
+      "description": "Documentation (README.md or docs/) describes the run lifecycle: how to save and load (CLI flags + default save path), how the daily seed works, the run-summary contents, the single-slot / save-scumming-prevention rule, and how to reproduce a run from a numeric seed.",
+      "testMethod": "static",
+      "testSteps": [
+        "Open README.md and any sprint-relevant docs in `docs/`.",
+        "Verify a section or paragraph describes `--save` / `--load` and the default save path.",
+        "Verify a section describes `--daily` and how the daily seed maps from the date.",
+        "Verify a section lists what the run summary includes.",
+        "Verify a section describes the anti-save-scumming rule.",
+        "Verify a section describes how `--seed N` reproduces a run."
+      ],
+      "threshold": "All five documentation topics are present in the docs."
+    },
+    {
+      "id": "C21",
+      "category": "code-quality",
+      "description": "The save format is forward-friendly: it includes a schema/version field (e.g., `\"version\": 1`) so future sprints can evolve the format. `load_game` reads the version field and rejects unsupported versions through the project's documented save/load exception.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Save a game; open the JSON; verify a top-level `version` (or `schema_version`) key is an integer >= 1.",
+        "Hand-edit the JSON to set version to 9999 and call `load_game`; assert the project's save/load exception is raised with a message that references the version mismatch."
+      ],
+      "threshold": "Save includes a version field; load rejects unsupported versions clearly."
+    },
+    {
+      "id": "C22",
+      "category": "behavior",
+      "description": "Deepest floor accounting: after the player descends from floor 0 to floor 1 and ascends back, `deepest_floor` is 1 (it is monotonic — never decreases when the player ascends).",
+      "testMethod": "unit",
+      "testSteps": [
+        "Construct a game with at least 2 floors.",
+        "Teleport the player onto a downstairs and call `descend()`; verify `deepest_floor == 1`.",
+        "Teleport the player onto the new floor's upstairs and call `ascend()`; verify the player is back on floor 0 but `deepest_floor` is still 1.",
+        "Descend again; verify `deepest_floor` remains 1 (still monotonic, doesn't double-count)."
+      ],
+      "threshold": "deepest_floor is monotonic and reflects the deepest floor index ever reached."
+    }
+  ],
+  "outOfScope": [
+    "The Whisperer LLM adapter, event bus, prose pool, cost guardrails (Sprint 7).",
+    "Whisperer panel UI, monster/item naming on first sight, atmospheric room prose (Sprint 8).",
+    "Director-mode generation nudges and cross-run meta-memory (Sprint 9).",
+    "End-of-run Markdown chronicle / death legend (Sprint 10) — Sprint 6's run summary is a plain in-process string/dict, not a Markdown file with whispered epitaph.",
+    "Themed dungeon archetypes and palettes (Sprint 11).",
+    "Rebindable keys, in-game help overlay, ambient audio, leaderboard sync (Sprint 12) — Sprint 6 may write a local leaderboard file but is not required to.",
+    "Multi-slot saves, autosaves on every turn, cloud sync, save migration tooling — single-slot is the contract.",
+    "Encrypted or tamper-resistant save files — plain JSON is acceptable; anti-save-scumming is enforced by consume-on-load and refuse-on-death, not by anti-tamper.",
+    "Multi-character or multi-profile support — one player, one save slot, one run at a time.",
+    "Daily-seed leaderboards or networked sync — Sprint 6's `--daily` is purely deterministic seeding from the calendar date."
+  ],
+  "regressionSprints": [1, 2, 3, 4, 5],
+  "deliverables": [
+    "A save/lifecycle module under `whisperdeep/` exporting `save_game`, `load_game`, `run_summary`, `daily_seed`, and a `SaveLoadError` (or equivalent) exception class.",
+    "Game-state fields: `game_over` (bool), `cause_of_death` (str|None), `kills` (int), `deepest_floor` (int). Existing `turns` counter retained.",
+    "Game loop wiring: when player HP <= 0, set `game_over=True`, capture `cause_of_death`; subsequent player actions are no-ops.",
+    "CLI flags: `--save PATH`, `--load PATH`, `--daily`, plus a documented mechanism to deterministically simulate death in headless mode (e.g., `--simulate-death` or scripted-action input on stdin).",
+    "Save format: JSON with a `version` field, fully round-trippable, with schema validation on load.",
+    "Anti-save-scumming: load consumes the save file; save while game_over is rejected.",
+    "Daily seed function deriving an int from UTC date.",
+    "Tests (>=10) covering save round-trip, scum-prevention, corrupt saves, daily determinism, run summary, cause_of_death, death exit signal, kill counter, deepest-floor counter.",
+    "Updated README.md with sections on saving/loading, daily runs, run summary, and seed reproducibility.",
+    "Commits following `harness(sprint-06): description [C-ID]`."
+  ]
+}

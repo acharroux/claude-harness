@@ -1,0 +1,128 @@
+[
+  {
+    "archetype": "flooded_sewer",
+    "floors_reached": 1,
+    "name": "Mara",
+    "score": 100,
+    "seed": 1,
+    "timestamp": "2026-06-12T00:00:00Z",
+    "turns": 0
+  },
+  {
+    "archetype": "mushroom_forest",
+    "floors_reached": 1,
+    "name": "Mara",
+    "score": 100,
+    "seed": 11,
+    "timestamp": "2026-06-12T00:00:00Z",
+    "turns": 0
+  },
+  {
+    "archetype": "mushroom_forest",
+    "floors_reached": 1,
+    "name": "Mara",
+    "score": 100,
+    "seed": 11,
+    "timestamp": "2026-06-12T00:00:00Z",
+    "turns": 0
+  },
+  {
+    "archetype": "flooded_sewer",
+    "floors_reached": 1,
+    "name": "Mara",
+    "score": 100,
+    "seed": 1,
+    "timestamp": "2026-06-12T00:00:00Z",
+    "turns": 0
+  },
+  {
+    "archetype": "mushroom_forest",
+    "floors_reached": 1,
+    "name": "the unnamed",
+    "score": 100,
+    "seed": 11,
+    "timestamp": "2026-06-12T00:00:00Z",
+    "turns": 0
+  },
+  {
+    "archetype": "mushroom_forest",
+    "floors_reached": 1,
+    "name": "the unnamed",
+    "score": 100,
+    "seed": 11,
+    "timestamp": "2026-06-12T00:00:00Z",
+    "turns": 0
+  },
+  {
+    "archetype": "crypt",
+    "floors_reached": 1,
+    "name": "the unnamed",
+    "score": 100,
+    "seed": 12,
+    "timestamp": "2026-06-12T00:00:00Z",
+    "turns": 0
+  },
+  {
+    "archetype": "flooded_sewer",
+    "floors_reached": 1,
+    "name": "Mara",
+    "score": 100,
+    "seed": 1,
+    "timestamp": "2026-06-12T00:00:00Z",
+    "turns": 0
+  },
+  {
+    "archetype": "mushroom_forest",
+    "floors_reached": 1,
+    "name": "Mara",
+    "score": 100,
+    "seed": 11,
+    "timestamp": "2026-06-12T00:00:00Z",
+    "turns": 0
+  },
+  {
+    "archetype": "mushroom_forest",
+    "floors_reached": 1,
+    "name": "Mara",
+    "score": 100,
+    "seed": 11,
+    "timestamp": "2026-06-12T00:00:00Z",
+    "turns": 0
+  },
+  {
+    "archetype": "flooded_sewer",
+    "floors_reached": 1,
+    "name": "Mara",
+    "score": 100,
+    "seed": 1,
+    "timestamp": "2026-06-12T00:00:00Z",
+    "turns": 0
+  },
+  {
+    "archetype": "mushroom_forest",
+    "floors_reached": 1,
+    "name": "the unnamed",
+    "score": 100,
+    "seed": 11,
+    "timestamp": "2026-06-12T00:00:00Z",
+    "turns": 0
+  },
+  {
+    "archetype": "mushroom_forest",
+    "floors_reached": 1,
+    "name": "the unnamed",
+    "score": 100,
+    "seed": 11,
+    "timestamp": "2026-06-12T00:00:00Z",
+    "turns": 0
+  },
+  {
+    "archetype": "crypt",
+    "floors_reached": 1,
+    "name": "the unnamed",
+    "score": 100,
+    "seed": 12,
+    "timestamp": "2026-06-12T00:00:00Z",
+    "turns": 0
+  }
+]

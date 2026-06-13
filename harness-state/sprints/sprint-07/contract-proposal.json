@@ -1,0 +1,349 @@
+{
+  "sprintNumber": 7,
+  "sprintName": "Whisperer Adapter & Event Bus",
+  "theme": "LLM adapter interface, in-game event stream, fallback prose pool, cost/token budget guardrails",
+  "features": ["F7"],
+  "dependsOn": [6],
+  "summary": "Lay the plumbing for the Whisperer (Whisperdeep's signature LLM-driven dungeon master) without yet exposing whispers in the game UI. Sprint 7 delivers four cleanly separated layers: (1) a structured in-game Event Bus that the rest of the engine can publish to (entered_room, killed_monster, low_hp, found_item, descended, run_started, run_ended) and that subscribers can listen on; (2) a provider-agnostic LLM Adapter interface with at minimum a NullAdapter, a deterministic OfflineAdapter (canned/fallback prose pool), and a stub for a real provider (e.g., AnthropicAdapter / OpenAIAdapter) that uses an env-var API key and is exercised only behind a flag; (3) a Whisperer service that consumes events from the bus, builds prompts/context, queries the adapter, and produces 'whisper' records with metadata (timestamp, source event, prose, token cost, adapter name, fallback flag); (4) a hard cost/token budget guardrail that tracks tokens used per run and per session and forces a graceful degrade to the fallback prose pool when the budget is exhausted or a network call fails. No UI panel is added in Sprint 7 (that is Sprint 8); whispers are observable through the Whisperer's whisper log and through tests. The Whisperer is wired into the Game so events fire automatically during gameplay, but rendering is unchanged from Sprint 2-6.",
+  "assumptions": [
+    "Sprints 1 and 2 are merged: the Whisperdeep Python package, World/Floor/Generator, Game with player movement, ASCII renderer, CLI with --seed and --headless. This is verified — `python -m whisperdeep --seed 1 --headless` currently runs and prints a deterministic dungeon frame.",
+    "Sprints 3, 4, 5, and 6 may be partially missing in tree (sprints 5 and 6 evaluations failed in prior turns). Sprint 7 must NOT block on missing pieces from those sprints. Where a needed event source is absent (e.g., monster kills, low_hp, descended), Sprint 7 wires the event publication to whatever primitives exist (e.g., descended to `Game.descend`) and accepts that some event types will simply not fire until the upstream sprint is restored. Sprint 7's tests publish events directly to the bus where needed.",
+    "The Whisperer is implemented in Python only and adds NO new third-party dependencies that are required at import time. Real LLM SDKs (anthropic, openai) may be referenced behind a soft import guard that only triggers when the user explicitly selects that adapter via env var or CLI flag.",
+    "The fallback prose pool ships as a plain JSON or Python data file checked into the repo. It must contain at least 8 distinct entries per supported event type so randomized fallback prose is plausibly varied.",
+    "Determinism: when a seed is set on the Whisperer (e.g., via the master seed), the OfflineAdapter's prose selections are reproducible. The real-LLM adapter is NOT expected to be deterministic.",
+    "Glyph and rendering conventions from prior sprints are unchanged. The CLI continues to print the dungeon frame on `--headless`.",
+    "Pytest remains the test runner; tests live under `tests/`. Tests must NOT make network calls.",
+    "API keys are read from environment variables (e.g., `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) and are NEVER committed. Tests that exercise the real-provider adapter are skipped when the key is absent.",
+    "The contract uses 'whisper' to mean a single Whisperer output (a 1-3 sentence string + metadata). Whispers produced in this sprint are stored in a Whisperer-internal log accessible via `whisperer.whispers` (or equivalent); the in-game UI panel arrives in Sprint 8."
+  ],
+  "criteria": [
+    {
+      "id": "C1",
+      "category": "code-structure",
+      "description": "A dedicated event-bus module exists under `whisperdeep/` (e.g., `whisperdeep/events.py` or `whisperdeep/event_bus.py`) that is importable and exposes an `EventBus` class (or equivalent), an `Event` type (dataclass or NamedTuple), and `publish` / `subscribe` entry points.",
+      "testMethod": "static",
+      "testSteps": [
+        "Run `python -c \"from whisperdeep import events as _\"` (or the discovered name) and confirm exit code 0.",
+        "Confirm the module exports an `EventBus` class and an `Event` type.",
+        "Confirm `EventBus` has `publish` (or `emit`) and `subscribe` (or `on`) methods."
+      ],
+      "threshold": "Module exists, imports cleanly, and exposes EventBus + Event + publish/subscribe."
+    },
+    {
+      "id": "C2",
+      "category": "api",
+      "description": "Event objects carry at minimum: a string `type` (one of the documented kinds), a `payload` dict (or structured fields), a numeric `turn` (the game turn at which the event was published), and a `floor` index (or None if not applicable). Events are immutable (dataclass with frozen=True, NamedTuple, or equivalent).",
+      "testMethod": "unit",
+      "testSteps": [
+        "Construct an Event with type='entered_room', payload={'room_id': 3}, turn=12, floor=0.",
+        "Assert event.type == 'entered_room', event.turn == 12, event.floor == 0, event.payload['room_id'] == 3.",
+        "Attempt to mutate a field (e.g., `event.turn = 99`); assert it raises (FrozenInstanceError, AttributeError, or TypeError)."
+      ],
+      "threshold": "Event has the required fields and is immutable."
+    },
+    {
+      "id": "C3",
+      "category": "api",
+      "description": "Subscribers can register for a specific event type or for all events ('*'). Publishing an event invokes only matching subscribers, in registration order, exactly once per event.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Construct an EventBus.",
+        "Register subscriber A for type='killed_monster', subscriber B for type='entered_room', subscriber C for '*' (all).",
+        "Publish an Event of type 'killed_monster'.",
+        "Assert A was called once, B was NOT called, C was called once.",
+        "Publish an Event of type 'entered_room'.",
+        "Assert A still has 1 call, B has 1 call, C has 2 calls.",
+        "Verify the order C-after-A on the kill event matches subscription order."
+      ],
+      "threshold": "Type-targeted and wildcard subscriptions both work; subscribers receive each matching event exactly once."
+    },
+    {
+      "id": "C4",
+      "category": "api",
+      "description": "The bus documents and accepts a closed set of canonical event type names: at minimum 'run_started', 'run_ended', 'entered_room', 'killed_monster', 'low_hp', 'found_item', 'descended'. The set is exposed as a constant (e.g., `EVENT_TYPES` or an Enum) so other modules and tests can reference it without magic strings.",
+      "testMethod": "static",
+      "testSteps": [
+        "Import the event-types constant or Enum from the events module.",
+        "Verify it contains at least these seven names: run_started, run_ended, entered_room, killed_monster, low_hp, found_item, descended.",
+        "Verify the constant is iterable (so subscribers can use it for wildcard checks)."
+      ],
+      "threshold": "Canonical event-type names are exposed and contain the seven required entries."
+    },
+    {
+      "id": "C5",
+      "category": "code-structure",
+      "description": "A dedicated whisperer module exists (e.g., `whisperdeep/whisperer.py`) exposing a `Whisperer` class with a constructor that takes an LLM adapter and optionally an event bus, a budget, and a seed. It exposes methods to attach to a bus (`attach(bus)` or pass bus in constructor) and to read produced whispers (`whisperer.whispers` or `get_whispers()`).",
+      "testMethod": "static",
+      "testSteps": [
+        "Run `python -c \"from whisperdeep.whisperer import Whisperer\"` and confirm exit code 0.",
+        "Inspect the constructor signature; verify it accepts an `adapter` parameter.",
+        "Verify the class exposes `whispers` (attribute or method) for reading produced whispers."
+      ],
+      "threshold": "Whisperer class exists in a dedicated module with the documented surface."
+    },
+    {
+      "id": "C6",
+      "category": "code-structure",
+      "description": "A dedicated LLM-adapter module exists (e.g., `whisperdeep/llm.py` or `whisperdeep/adapters/`) exposing an abstract `LLMAdapter` base (ABC or Protocol) with a `complete(prompt: str, *, max_tokens: int) -> AdapterResult` method (or equivalently named), and at minimum two concrete subclasses: `NullAdapter` (always returns empty string / no whisper) and `OfflineAdapter` (returns prose drawn from the fallback pool, deterministic when seeded).",
+      "testMethod": "static",
+      "testSteps": [
+        "Run `python -c \"from whisperdeep.llm import LLMAdapter, NullAdapter, OfflineAdapter\"` (or the discovered names) and confirm exit code 0.",
+        "Verify LLMAdapter is abstract: instantiating it directly raises TypeError, OR it is a Protocol.",
+        "Verify NullAdapter and OfflineAdapter implement the documented complete() (or equivalent) method.",
+        "Verify the AdapterResult (or return type) carries at minimum: the text string and a token count (or token estimate)."
+      ],
+      "threshold": "Adapter ABC + NullAdapter + OfflineAdapter all present and importable."
+    },
+    {
+      "id": "C7",
+      "category": "feature",
+      "description": "A real-provider adapter stub exists (e.g., `AnthropicAdapter` or `OpenAIAdapter` or both) that reads an API key from a documented environment variable. When the key is absent, attempting to call `complete()` raises a documented `LLMUnavailable` (or equivalent) exception WITHOUT crashing on import. The adapter does not actually make a network call in this sprint's automated tests.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Import the real-provider adapter class.",
+        "Construct it with no API key (clear the relevant env var via monkeypatch).",
+        "Call `complete('test', max_tokens=10)` and assert it raises the documented LLMUnavailable exception (or equivalent) referencing the missing env var.",
+        "Verify importing the module does NOT raise even if the third-party SDK (anthropic/openai) is not installed (soft import guard)."
+      ],
+      "threshold": "Real-provider adapter stub exists, fails loudly without a key, and does not poison imports when the SDK is missing."
+    },
+    {
+      "id": "C8",
+      "category": "feature",
+      "description": "OfflineAdapter draws prose from a fallback pool keyed by event type. The pool ships in the repo (JSON or Python data) and contains at least 8 distinct entries for each of the seven canonical event types (>= 56 total entries). The OfflineAdapter selects a pool entry based on the prompt or event-type hint and returns a non-empty string.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Locate the fallback prose pool resource (file or constant).",
+        "Load it; for each of the seven canonical event types, verify the pool exposes >= 8 distinct (string-unique) entries.",
+        "Construct an OfflineAdapter; for each event type, request a completion hinting that type and verify the returned text is a non-empty string drawn from that type's pool.",
+        "Verify the total number of distinct entries across all event types is >= 56."
+      ],
+      "threshold": ">= 8 entries per canonical event type, all non-empty, accessible via OfflineAdapter."
+    },
+    {
+      "id": "C9",
+      "category": "determinism",
+      "description": "OfflineAdapter is deterministic when seeded: the same (seed, event-type sequence) yields the same prose sequence, and different seeds yield different sequences within a finite run.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Construct OfflineAdapter A with seed=42.",
+        "Have A produce whispers for the sequence ['entered_room', 'killed_monster', 'entered_room', 'low_hp', 'descended'] and capture the strings.",
+        "Construct OfflineAdapter B with seed=42 and repeat; assert the captured sequences are identical.",
+        "Construct OfflineAdapter C with seed=43 and repeat; assert at least one of the five whispers differs from A's sequence (sequences should not collide for distinct seeds on >= 8-entry pools).",
+        "Verify the sequence comparison is strict string equality."
+      ],
+      "threshold": "Same seed -> identical prose sequence; different seeds produce a different sequence in >=1 position."
+    },
+    {
+      "id": "C10",
+      "category": "feature",
+      "description": "The Whisperer subscribes to the event bus and produces whispers automatically. After the bus publishes a recognized event, the Whisperer's whisper log gains a new entry whose source-event metadata references that event. Whispers carry: text, source event type, source turn, source floor, adapter name, and a `fallback` boolean flag.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Construct an EventBus.",
+        "Construct a Whisperer with OfflineAdapter(seed=1) and attach it to the bus.",
+        "Publish an Event(type='killed_monster', payload={'name': 'goblin'}, turn=5, floor=0).",
+        "Assert whisperer.whispers (or get_whispers()) has length 1.",
+        "Inspect the new whisper; assert: text is non-empty string; source_event_type == 'killed_monster'; source_turn == 5; source_floor == 0; adapter_name is a non-empty string; fallback is a boolean.",
+        "Publish two more events (entered_room, low_hp) and assert whispers has length 3."
+      ],
+      "threshold": "Whisperer auto-produces a whisper per recognized event with full metadata."
+    },
+    {
+      "id": "C11",
+      "category": "feature",
+      "description": "Cost / token budget guardrail: the Whisperer tracks cumulative token usage (estimated for OfflineAdapter, real for a provider) and accepts a `budget` parameter. Once the budget is exhausted, subsequent whispers MUST be served from the fallback pool (OfflineAdapter or its built-in pool) and have `fallback=True`. Whispers continue to be produced — the game is never starved — but no further chargeable tokens are consumed.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Construct a Whisperer with a tiny budget (e.g., 30 tokens) and a primary adapter that reports a fixed token count per call (e.g., a TestAdapter or a configured OfflineAdapter that reports 20 tokens per call).",
+        "Publish events until cumulative reported tokens exceed the budget.",
+        "Verify all whispers up to the budget have `fallback=False`.",
+        "Verify all whispers AFTER the budget has been exceeded have `fallback=True`.",
+        "Verify the Whisperer continues to produce non-empty whisper text after the budget is exhausted (the game is not silenced).",
+        "Inspect `whisperer.tokens_used` (or equivalent) and assert it does not increase past the threshold of (budget + last-pre-cap call)."
+      ],
+      "threshold": "Budget exhaustion forces fallback=True whispers; whispers never go silent; token counter stops accumulating chargeable usage."
+    },
+    {
+      "id": "C12",
+      "category": "feature",
+      "description": "Network/adapter failure resilience: when the primary adapter raises an exception (e.g., LLMUnavailable, network error, rate-limit), the Whisperer logs the failure once, falls back to the offline pool for that whisper, and CONTINUES processing future events without re-raising. The whisper that fell back is marked `fallback=True`.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Construct a FlakyAdapter (test double) whose `complete()` raises an exception on every call.",
+        "Construct a Whisperer with FlakyAdapter as primary and OfflineAdapter as fallback (or with OfflineAdapter built in).",
+        "Publish an Event; assert the call did NOT propagate the exception.",
+        "Inspect the produced whisper; assert text is non-empty, fallback=True, and a failure was recorded somewhere (e.g., whisperer.failure_count >= 1, or a per-whisper error_reason field).",
+        "Publish a second Event; assert another whisper is produced (the Whisperer is not stuck after one failure).",
+        "Verify the Whisperer never raises out of its event handler."
+      ],
+      "threshold": "Adapter failures are caught, logged, surfaced via fallback, and never crash the event loop."
+    },
+    {
+      "id": "C13",
+      "category": "integration",
+      "description": "The Whisperer is wired into the Game runtime: when a Game is constructed (e.g., via `Game.from_seed`) with whispering enabled, an event bus and Whisperer are set up automatically; gameplay actions that publish to the bus produce whispers. At minimum, the Game publishes a `run_started` event on construction and a `descended` event when the player descends a staircase.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Construct a Game with whispering enabled (the documented mechanism, e.g., `Game.from_seed(seed=1, whisperer=True)` or default-on with a flag).",
+        "Verify the Game exposes a Whisperer (e.g., `game.whisperer`) and an EventBus (e.g., `game.events`).",
+        "Verify `game.whisperer.whispers` already contains a whisper sourced from a 'run_started' event.",
+        "Place the player on a downstairs and call `game.descend()`.",
+        "Verify a new whisper appears whose source_event_type == 'descended'.",
+        "Verify constructing a Game with whispering DISABLED (the documented opt-out) does NOT publish events nor create a Whisperer (or creates a no-op one)."
+      ],
+      "threshold": "Game lifecycle publishes at least run_started and descended events; whispers appear in the log; opt-out works."
+    },
+    {
+      "id": "C14",
+      "category": "cli",
+      "description": "CLI exposes a documented flag to control the Whisperer adapter (e.g., `--whisperer offline|null|anthropic|openai`, default `offline`) and a flag to disable the Whisperer entirely (e.g., `--no-whisperer`). The default headless run uses the offline adapter and never makes network calls.",
+      "testMethod": "integration",
+      "testSteps": [
+        "Run `python -m whisperdeep --seed 1 --headless --help` (or the documented help path) and verify the help text references the whisperer flag(s).",
+        "Run `python -m whisperdeep --seed 1 --headless` with no network access (or with the relevant env vars cleared); verify exit code 0 and that the run completes.",
+        "Run `python -m whisperdeep --seed 1 --headless --no-whisperer` and verify exit code 0.",
+        "Verify that `--whisperer null` produces a clean exit and that no whisper text is emitted to stdout (the dungeon frame is unchanged).",
+        "Verify the run-summary or banner (if any) reports which adapter was used."
+      ],
+      "threshold": "Flags exist, are documented in --help, and produce predictable behavior; default is offline; --no-whisperer is honored."
+    },
+    {
+      "id": "C15",
+      "category": "feature",
+      "description": "Whispers do NOT yet appear in the rendered dungeon frame. Sprint 7 is plumbing only; the visible terminal output of `--headless` runs is byte-equivalent to the pre-Whisperer output for the same seed (modulo any explicitly opt-in banner line that names the adapter). The dungeon glyph grid itself is unchanged.",
+      "testMethod": "integration",
+      "testSteps": [
+        "Run `python -m whisperdeep --seed 1 --headless --no-whisperer` and capture stdout as A.",
+        "Run `python -m whisperdeep --seed 1 --headless` (default offline whisperer) and capture stdout as B.",
+        "Strip any banner/metadata lines defined by the implementer (e.g., a single `# whisperer: offline` line); verify the remaining dungeon glyph rows in A and B are byte-identical.",
+        "Verify no whisper prose strings appear inside the dungeon glyph grid in either output."
+      ],
+      "threshold": "Dungeon glyph rendering is unchanged by enabling the Whisperer. Sprint 8 is responsible for the panel UI."
+    },
+    {
+      "id": "C16",
+      "category": "determinism",
+      "description": "End-to-end Whisperer determinism: with `--seed N --headless` and the offline adapter, the Whisperer produces an identical sequence of whispers across two separate processes. The whisper sequence is exposed in a deterministic, machine-readable form (e.g., a `--dump-whispers PATH` flag that writes a JSON array, or whispers logged to a file at a documented path).",
+      "testMethod": "integration",
+      "testSteps": [
+        "Run `python -m whisperdeep --seed 5 --headless --dump-whispers w1.json` (or the documented mechanism) twice in separate processes.",
+        "Load both files; assert their JSON contents (whisper text + source_event_type + turn + floor) are equal element-wise.",
+        "Run with a different seed (e.g., --seed 6) and verify the whisper sequence differs from the seed-5 sequence in at least one element.",
+        "Verify each dumped whisper has a `fallback` boolean and an `adapter_name` so the run is reproducible."
+      ],
+      "threshold": "Same seed -> identical whisper sequence across processes; different seeds -> different sequences. Whispers are dumpable to disk."
+    },
+    {
+      "id": "C17",
+      "category": "feature",
+      "description": "No network in tests / no surprise costs: the test suite, run with no env vars set, makes ZERO outbound network calls. The OfflineAdapter and NullAdapter never call out; the real-provider adapter is exercised only in tests gated by the presence of an env var (skipped otherwise) and even those tests are marked or named so they can be deselected (e.g., `pytest -k 'not network'`).",
+      "testMethod": "unit",
+      "testSteps": [
+        "Inspect the test files; verify no test imports `requests`, `httpx`, `urllib.request`, `anthropic`, or `openai` at module top-level without a skip-on-missing-env guard.",
+        "Run `pytest tests/` and verify the suite passes with no API keys set.",
+        "If a real-provider test exists, verify it is decorated with `pytest.mark.skipif` or `pytest.importorskip` so it is skipped without keys.",
+        "Verify the OfflineAdapter and NullAdapter implementations contain no calls to `requests`, `httpx`, `urllib.request`, `socket.create_connection`, etc. (grep at minimum)."
+      ],
+      "threshold": "Tests pass with no keys set; no test makes a real network call; offline/null adapters are network-free."
+    },
+    {
+      "id": "C18",
+      "category": "regression",
+      "description": "Sprints 1-2 functionality is preserved: the game still launches with `python -m whisperdeep --seed N --headless` and prints a deterministic dungeon frame; the documented glyphs (`#`, `.`, `+`, `<`, `>`, `@`) still render; existing pytest tests from prior sprints still pass.",
+      "testMethod": "integration",
+      "testSteps": [
+        "Run `pytest tests/` and verify the entire prior test suite passes.",
+        "Run `python -m whisperdeep --seed 1 --headless` and verify exit code 0 with a non-empty frame.",
+        "Run `python -m whisperdeep --seed 1 --headless` twice and verify the dungeon glyph rows are byte-identical (Sprint 2 determinism preserved).",
+        "Run `python -m whisperdeep --seed 1 --headless` and `python -m whisperdeep --seed 2 --headless`; verify the rendered grids differ (different seeds -> different dungeons, Sprint 2 regression).",
+        "Verify the canonical glyphs (`#`, `.`, `+`, `<`, `>`, `@`) all appear in the seed-1 frame."
+      ],
+      "threshold": "All prior tests pass; existing seed determinism and glyph contract are preserved."
+    },
+    {
+      "id": "C19",
+      "category": "tests",
+      "description": "Automated test suite includes >= 12 NEW tests targeting Sprint 7 functionality, covering at minimum: event bus pub/sub (C3), event-type registry (C4), event immutability (C2), OfflineAdapter pool size and content (C8), OfflineAdapter determinism (C9), Whisperer-from-bus auto-production (C10), budget exhaustion forcing fallback (C11), adapter failure resilience (C12), Game wiring of run_started/descended (C13), real-provider adapter raising LLMUnavailable without a key (C7), end-to-end whisper-dump determinism (C16), and tests-make-no-network-calls (C17).",
+      "testMethod": "unit",
+      "testSteps": [
+        "Locate test files under `tests/` whose names reference 'whisperer', 'event', 'bus', 'adapter', 'llm', or 'sprint07'.",
+        "Count distinct `test_*` function definitions in those files (not pytest-collected items, to prevent parameterization padding).",
+        "Verify the count is >= 12.",
+        "Verify each of the listed scenarios (event bus pub/sub, event-type registry, event immutability, offline pool, offline determinism, auto-whisper from bus, budget cap, failure resilience, Game wiring, real-provider missing key, dump determinism, no-network) is covered by at least one test function name or assertion.",
+        "Run `pytest tests/` and verify all tests pass."
+      ],
+      "threshold": ">= 12 distinct Sprint-7 test functions, all passing, covering each listed scenario."
+    },
+    {
+      "id": "C20",
+      "category": "documentation",
+      "description": "Documentation (README.md and/or `docs/`) describes the Whisperer plumbing: the canonical event types and when they fire, the adapter abstraction (Null / Offline / real-provider), the budget/guardrail behavior, the CLI flags (`--whisperer`, `--no-whisperer`, `--dump-whispers`), and which environment variables are read for each real provider. The fact that Sprint 7 is plumbing-only (no UI panel) is stated explicitly so users don't expect to see whispers on screen.",
+      "testMethod": "static",
+      "testSteps": [
+        "Open README.md and any sprint-relevant docs in `docs/`.",
+        "Verify a section enumerates the seven canonical event types from C4.",
+        "Verify a section describes the adapter abstraction and lists Null, Offline, and at least one real-provider adapter.",
+        "Verify a section describes the token-budget guardrail and the fallback behavior (degrade to offline pool, never go silent).",
+        "Verify a section documents `--whisperer`, `--no-whisperer`, and `--dump-whispers`.",
+        "Verify a section names the env var(s) read by the real-provider adapter(s).",
+        "Verify the docs explicitly state that whispers are NOT yet rendered in-game (Sprint 8)."
+      ],
+      "threshold": "All six documentation topics are present in the docs."
+    },
+    {
+      "id": "C21",
+      "category": "code-quality",
+      "description": "Separation of concerns: the LLM adapter module has zero imports from `whisperdeep.game`, `whisperdeep.world`, `whisperdeep.floor`, or `whisperdeep.render`. The event-bus module has zero imports from `whisperdeep.whisperer` and zero imports from `whisperdeep.llm`. Game-side code that publishes events depends only on the event-bus module, not on the Whisperer or any adapter. This keeps the Whisperer pluggable.",
+      "testMethod": "static",
+      "testSteps": [
+        "Open the LLM adapter module(s) and verify (via grep or AST) that no `from whisperdeep.game`, `from whisperdeep.world`, `from whisperdeep.floor`, or `from whisperdeep.render` imports are present.",
+        "Open the event-bus module and verify it does not import the whisperer or the llm modules.",
+        "Open `whisperdeep/game.py` (or wherever events are published from gameplay) and verify it imports the event-bus module but does NOT import the whisperer or any concrete LLM adapter directly (the Whisperer is wired in by the CLI / a factory, not by Game).",
+        "Confirm the whisperer module imports the bus and the adapter ABC, but NOT the concrete real-provider adapter classes (those are constructed by a factory based on CLI flag)."
+      ],
+      "threshold": "Layering invariants hold: Game -> Bus; Whisperer -> Bus + AdapterABC; concrete adapters wired by a factory."
+    },
+    {
+      "id": "C22",
+      "category": "behavior",
+      "description": "Whisper-rate throttle: when many events of the same type fire in rapid succession (e.g., 50 'entered_room' events on a single player turn during a teleport), the Whisperer does NOT emit 50 LLM calls. It either coalesces / debounces consecutive same-type events on the same turn into a single whisper, or it caps whispers-per-turn at a documented small number (e.g., 1-3). This prevents runaway token cost.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Construct a Whisperer with a CountingAdapter that records each call.",
+        "Publish 50 events of type 'entered_room' within the same turn (turn=1) on the bus.",
+        "Inspect CountingAdapter.call_count and Whisperer.whispers length.",
+        "Assert call_count <= a documented per-turn cap (e.g., <= 3) AND assert whispers length <= the same cap.",
+        "Publish 10 events of mixed types within the same turn; assert the per-turn cap is still respected (some events MAY produce no whisper, by design)."
+      ],
+      "threshold": "Whispers per turn are bounded by a documented small cap; spammy events do not produce 1:1 LLM calls."
+    }
+  ],
+  "outOfScope": [
+    "Whisperer panel UI in the rendered dungeon (Sprint 8).",
+    "Monster/item naming on first sight as a player-visible feature (Sprint 8).",
+    "Atmospheric room prose displayed in the game (Sprint 8).",
+    "Director-mode procgen nudges — the bus and Whisperer must not mutate generation in this sprint (Sprint 9).",
+    "Cross-run meta-memory and persistence of Whisperer state across runs (Sprint 9).",
+    "End-of-run Markdown chronicle / death legends (Sprint 10).",
+    "Themed dungeon archetypes and palette swaps (Sprint 11).",
+    "Rebindable keys, help overlay, ambient audio, leaderboard (Sprint 12).",
+    "Streaming LLM responses, tool-use, multi-turn conversations with the model — the adapter contract is single-shot prompt -> single-shot completion in Sprint 7.",
+    "Caching previous LLM responses to disk — the budget guardrail and fallback pool are sufficient for Sprint 7.",
+    "A leaderboard, telemetry, or analytics for Whisperer cost — local in-process counters only.",
+    "Real network calls in CI / automated tests — provider adapters are stubbed and gated behind env-var-presence skips."
+  ],
+  "regressionSprints": [1, 2],
+  "deliverables": [
+    "An event-bus module under `whisperdeep/` exporting `EventBus`, an immutable `Event` type, and a canonical `EVENT_TYPES` constant or Enum with the seven required names.",
+    "An LLM-adapter module under `whisperdeep/` exporting an `LLMAdapter` ABC/Protocol, `NullAdapter`, `OfflineAdapter`, at least one real-provider adapter stub (e.g., `AnthropicAdapter`), and an `LLMUnavailable` (or equivalent) exception.",
+    "A whisperer module exporting a `Whisperer` class that subscribes to a bus, queries an adapter, enforces a token budget, falls back to the offline pool on errors or budget exhaustion, throttles per-turn whispers, and exposes a whisper log.",
+    "A fallback prose pool resource (JSON or Python data) with >= 8 distinct entries per canonical event type (>= 56 total).",
+    "Game wiring: `Game.from_seed` (or equivalent) sets up a default-offline Whisperer + Bus when whispering is enabled; gameplay publishes at least `run_started` and `descended` events.",
+    "CLI flags: `--whisperer offline|null|anthropic|openai` (default offline), `--no-whisperer`, `--dump-whispers PATH`. All flags documented in `--help`.",
+    "Whispers carry metadata: text, source_event_type, source_turn, source_floor, adapter_name, fallback (bool).",
+    ">= 12 NEW pytest tests under `tests/` covering the scenarios listed in C19, all passing with no API keys set and no network access.",
+    "README.md / docs updates covering: the seven event types, the adapter abstraction, the budget/fallback behavior, the new CLI flags, the env vars used by real providers, and the Sprint-7-is-plumbing-only note.",
+    "Commits following `harness(sprint-07): description [C-ID]` convention."
+  ]
+}

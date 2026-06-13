@@ -70,29 +70,44 @@ function Invoke-ClaudeAgent {
         & claude @cmdArgs *> $outputFile.FullName
         $exitCode = $LASTEXITCODE
 
-        # Parse the stream for progress display
+        # Parse the stream for progress display.
+        # PS 5.1: jq stderr triggers NativeCommandError under $ErrorActionPreference=Stop
+        # even with 2>$null.  Lower it for all jq calls in this loop.
+        # PS 5.1 also strips embedded double-quotes from native-command argv, so string
+        # literals like "tool_use" must be passed via --arg rather than inlined in filters.
         $reader = [System.IO.StreamReader]::new($outputFile.FullName)
         try {
             while (-not $reader.EndOfStream) {
                 $line = $reader.ReadLine()
                 if ([string]::IsNullOrWhiteSpace($line)) { continue }
 
+                $prev = $ErrorActionPreference; $ErrorActionPreference = 'SilentlyContinue'
                 $msgType = $line | & jq -r '.type // empty' 2>$null
-                if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrEmpty($msgType)) { continue }
+                $jqOk = $LASTEXITCODE -eq 0
+                $ErrorActionPreference = $prev
+                if (-not $jqOk -or [string]::IsNullOrEmpty($msgType)) { continue }
 
                 switch ($msgType) {
                     'assistant' {
-                        $toolName = $line | & jq -r '.message.content[]? | select(.type=="tool_use") | .name // empty' 2>$null
-                        if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrEmpty($toolName)) {
-                            $previewFilter = '.message.content[]? | select(.type=="tool_use") | .input | if .command then .command[:80] elif .file_path then .file_path elif .pattern then .pattern else (tostring[:60]) end'
-                            $preview = $line | & jq -r $previewFilter 2>$null
+                        # Use --arg to pass the string literal so PS 5.1 never touches the quotes.
+                        $prev = $ErrorActionPreference; $ErrorActionPreference = 'SilentlyContinue'
+                        $toolName = $line | & jq -r --arg t 'tool_use' '.message.content[]? | select(.type==$t) | .name // empty' 2>$null
+                        $jqOk = $LASTEXITCODE -eq 0
+                        $ErrorActionPreference = $prev
+                        if ($jqOk -and -not [string]::IsNullOrEmpty($toolName)) {
+                            $prev = $ErrorActionPreference; $ErrorActionPreference = 'SilentlyContinue'
+                            $preview = $line | & jq -r --arg t 'tool_use' '.message.content[]? | select(.type==$t) | .input | if .command then .command[:80] elif .file_path then .file_path elif .pattern then .pattern else (tostring[:60]) end' 2>$null
                             if ($LASTEXITCODE -ne 0) { $preview = '' }
+                            $ErrorActionPreference = $prev
                             [Console]::Error.WriteLine("  $([char]27)[0;90m> ${toolName}: ${preview}$([char]27)[0m")
                         }
                     }
                     'result' {
+                        $prev = $ErrorActionPreference; $ErrorActionPreference = 'SilentlyContinue'
                         $cost = $line | & jq -r '.total_cost_usd // empty' 2>$null
-                        if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrEmpty($cost) -and $cost -ne 'null') {
+                        $jqOk = $LASTEXITCODE -eq 0
+                        $ErrorActionPreference = $prev
+                        if ($jqOk -and -not [string]::IsNullOrEmpty($cost) -and $cost -ne 'null') {
                             [Console]::Error.WriteLine("  $([char]27)[0;90m  Cost: `$$cost$([char]27)[0m")
                         }
                     }

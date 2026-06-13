@@ -592,8 +592,7 @@ function Invoke-Fix {
     $reportPath = Join-Path $fixDir 'eval-report.json'
     $passed = $false
     if ($evalCode -eq 0 -and (Test-FileNonEmpty -Path $reportPath)) {
-        $verdict = & jq -r '(.overallResult // .result // .verdict // "UNKNOWN") | ascii_downcase' $reportPath 2>$null
-        if ($verdict -is [array]) { $verdict = ($verdict -join '') }
+        $verdict = Invoke-JqCapture -Filter '(.overallResult // .result // .verdict // $unk) | ascii_downcase' -InputFile $reportPath -ExtraArgs @('--arg', 'unk', 'UNKNOWN')
         $verdict = "$verdict".Trim()
         if ($verdict -eq 'pass' -or $verdict -eq 'passed') {
             $passed = $true
@@ -647,8 +646,7 @@ function Invoke-Refactor {
     $evalCode = Invoke-ClaudeAgent -Agent 'evaluator' -MaxTurns 100 -Prompt $evalPrompt
     $report = Join-Path $refDir 'eval-report.json'
     if ($evalCode -eq 0 -and (Test-FileNonEmpty -Path $report)) {
-        $verdict = & jq -r '(.overallResult // .result // .verdict // "UNKNOWN") | ascii_downcase' $report 2>$null
-        if ($verdict -is [array]) { $verdict = ($verdict -join '') }
+        $verdict = Invoke-JqCapture -Filter '(.overallResult // .result // .verdict // $unk) | ascii_downcase' -InputFile $report -ExtraArgs @('--arg', 'unk', 'UNKNOWN')
         $verdict = "$verdict".Trim()
         if ($verdict -eq 'pass' -or $verdict -eq 'passed') {
             $evalOK = $true

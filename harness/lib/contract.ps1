@@ -90,8 +90,7 @@ else 0 end
         }
 
         # Tolerate: .decision, .reviewVerdict, .verdict -- and "accepted", "accept", "approved"
-        $decision = & jq -r '(.decision // .reviewVerdict // .verdict // "unknown") | ascii_downcase' $reviewPath 2>$null
-        if ($decision -is [array]) { $decision = ($decision -join '') }
+        $decision = Invoke-JqCapture -Filter '(.decision // .reviewVerdict // .verdict // $unk) | ascii_downcase' -InputFile $reviewPath -ExtraArgs @('--arg', 'unk', 'unknown')
         $decision = "$decision".Trim()
 
         if ($decision -eq 'accepted' -or $decision -eq 'accept' -or $decision -eq 'approved' -or $decision -eq 'approve') {
@@ -100,8 +99,7 @@ else 0 end
             return
         }
 
-        $feedback = & jq -r '.feedback // .verdictReason // .reason // .comments // "no feedback provided"' $reviewPath 2>$null
-        if ($feedback -is [array]) { $feedback = ($feedback -join '') }
+        $feedback = Invoke-JqCapture -Filter '.feedback // .verdictReason // .reason // .comments // $nofb' -InputFile $reviewPath -ExtraArgs @('--arg', 'nofb', 'no feedback provided')
         $feedbackStr = "$feedback"
         if ($feedbackStr.Length -gt 200) { $feedbackStr = $feedbackStr.Substring(0, 200) }
         Write-LogWarn "Evaluator requested revisions: $feedbackStr"

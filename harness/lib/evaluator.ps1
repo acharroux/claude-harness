@@ -56,8 +56,7 @@ function Invoke-Evaluator {
     }
 
     # Tolerate many field name variations and case differences from real Claude
-    $result = & jq -r '(.overallResult // .result // .verdict // "UNKNOWN") | ascii_downcase' $reportPath 2>$null
-    if ($result -is [array]) { $result = ($result -join '') }
+    $result = Invoke-JqCapture -Filter '(.overallResult // .result // .verdict // $unk) | ascii_downcase' -InputFile $reportPath -ExtraArgs @('--arg', 'unk', 'UNKNOWN')
     $result = "$result".Trim()
 
     $passCount = & jq -r '.passCount // .pass_count // .score.passedCriteria // .score.passed // 0' $reportPath 2>$null

@@ -1,0 +1,293 @@
+{
+  "sprintNumber": 2,
+  "sprintName": "Dungeon Generation v1",
+  "theme": "Procedural rooms-and-corridors generation with doors, stairs, and multi-floor descent",
+  "features": ["F2"],
+  "dependsOn": [1],
+  "summary": "Replace the empty/static floor from Sprint 1 with a seedable rooms-and-corridors procedural generator. Floors must contain non-overlapping rectangular rooms connected by corridors, doors at room/corridor boundaries, and up/down staircases that allow the player to descend through a multi-floor dungeon. Generation must be deterministic given a seed so runs are reproducible.",
+  "assumptions": [
+    "Sprint 1 has produced a Python 3.11+ project scaffold with an entity/tile/grid model and a working ASCII render loop where the player can move on a single floor.",
+    "Sprint 1 exposes a Floor / Map / Tile abstraction the generator can populate, or Sprint 2 may introduce one that Sprint 1's render loop is adapted to consume.",
+    "Rendering is terminal-based (tcod, blessed, curses, or similar). Glyphs follow the spec: '#' walls, '.' floor, '+' door, '<' stairs up, '>' stairs down, '@' player.",
+    "The game can be launched with a CLI entrypoint (e.g. `python -m whisperdeep` or `python main.py`); a non-interactive / headless test mode is acceptable for criteria verification."
+  ],
+  "criteria": [
+    {
+      "id": "C1",
+      "category": "code-structure",
+      "description": "A dedicated dungeon generation module exists (e.g., `whisperdeep/dungeon/generator.py` or `whisperdeep/world/generator.py`) and is importable.",
+      "testMethod": "static",
+      "testSteps": [
+        "Locate a Python module whose name contains 'generat' under the package root.",
+        "Import it: `python -c \"import whisperdeep.<...>.generator\"` (or equivalent) succeeds without error."
+      ],
+      "threshold": "Module file exists and imports cleanly."
+    },
+    {
+      "id": "C2",
+      "category": "api",
+      "description": "Generator exposes a callable that produces a Floor/Map given a width, height, and seed.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Call the generator with width=80, height=40, seed=12345.",
+        "Verify the returned object exposes a 2D tile grid (or accessor) of the requested dimensions."
+      ],
+      "threshold": "Returned map dimensions equal requested width/height; tile access works at all in-bounds coordinates."
+    },
+    {
+      "id": "C3",
+      "category": "determinism",
+      "description": "Generation is deterministic: same seed + same dimensions produces an identical floor layout.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Generate two floors with seed=42, width=60, height=30.",
+        "Compare every tile's type/glyph between the two floors."
+      ],
+      "threshold": "100% of tiles match across the two generations."
+    },
+    {
+      "id": "C4",
+      "category": "determinism",
+      "description": "Different seeds produce different floor layouts (low-collision check).",
+      "testMethod": "unit",
+      "testSteps": [
+        "Generate floors with seeds 1, 2, 3, 4, 5 at the same dimensions.",
+        "Compute a hash of each tile grid and compare."
+      ],
+      "threshold": "At least 4 out of 5 hashes are unique."
+    },
+    {
+      "id": "C5",
+      "category": "feature",
+      "description": "Generated floor contains multiple non-overlapping rectangular rooms.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Generate a floor at 80x40 with a fixed seed.",
+        "Inspect the generator's room list (or detect rooms by flood-fill of floor tiles).",
+        "Verify there are at least 4 rooms.",
+        "Verify no two rooms' bounding rectangles overlap (interior tiles)."
+      ],
+      "threshold": ">=4 rooms, zero pairwise interior overlap."
+    },
+    {
+      "id": "C6",
+      "category": "feature",
+      "description": "Rooms are connected by corridors so all floor tiles are reachable from any other floor tile.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Generate a floor.",
+        "Pick any floor tile and run BFS over walkable tiles (floor + door + stairs).",
+        "Compare reachable count to total walkable count."
+      ],
+      "threshold": "100% of walkable tiles are reachable from any starting walkable tile."
+    },
+    {
+      "id": "C7",
+      "category": "feature",
+      "description": "Doors are placed at the boundary between rooms and corridors.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Generate a floor with a fixed seed.",
+        "Verify at least one door tile ('+') exists on the map.",
+        "For each door, verify it has at least one adjacent room-floor tile and at least one adjacent corridor or room-floor tile (i.e., it sits at a transition)."
+      ],
+      "threshold": ">=1 door per floor on average across 5 seeds; every door has valid adjacency."
+    },
+    {
+      "id": "C8",
+      "category": "feature",
+      "description": "Each non-final floor contains exactly one downstairs ('>'), and each non-first floor contains exactly one upstairs ('<').",
+      "testMethod": "unit",
+      "testSteps": [
+        "Generate a 3-floor dungeon.",
+        "Count '<' and '>' tiles per floor.",
+        "Verify floor 0: 0 upstairs, 1 downstairs. Floor 1: 1 upstairs, 1 downstairs. Floor 2 (final): 1 upstairs, 0 downstairs (or 1 if final-descent is allowed; the contract requires consistency)."
+      ],
+      "threshold": "Stair counts match the rule above for all floors."
+    },
+    {
+      "id": "C9",
+      "category": "feature",
+      "description": "Stairs are placed on walkable floor tiles (not embedded in walls).",
+      "testMethod": "unit",
+      "testSteps": [
+        "For each generated floor, find every '<' and '>' tile.",
+        "Verify each is reachable via BFS from the player spawn or from any other walkable tile."
+      ],
+      "threshold": "All stair tiles are reachable."
+    },
+    {
+      "id": "C10",
+      "category": "feature",
+      "description": "Player spawns inside a room on a walkable floor tile.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Generate a floor and create/spawn the player.",
+        "Inspect the tile at the player's position."
+      ],
+      "threshold": "Player tile is a floor tile (walkable) and lies within one of the generated room rectangles."
+    },
+    {
+      "id": "C11",
+      "category": "feature",
+      "description": "Multi-floor descent: stepping onto '>' transitions the player to the next floor and places them on or near the upstairs.",
+      "testMethod": "integration",
+      "testSteps": [
+        "Start a game with a fixed seed.",
+        "Programmatically pathfind/teleport the player to '>'.",
+        "Trigger the descend action.",
+        "Verify the current floor index increments and the player's tile is now the upstairs '<' (or an adjacent walkable tile) on the new floor."
+      ],
+      "threshold": "Floor index advances; player ends on '<' or an adjacent walkable tile."
+    },
+    {
+      "id": "C12",
+      "category": "feature",
+      "description": "Ascending: stepping onto '<' transitions the player back to the previous floor at the location of that floor's '>' (or adjacent walkable).",
+      "testMethod": "integration",
+      "testSteps": [
+        "After descending in C11, pathfind/teleport to '<'.",
+        "Trigger the ascend action.",
+        "Verify the floor index decrements and the player is at the previous floor's '>' tile (or adjacent walkable)."
+      ],
+      "threshold": "Floor index decrements; player ends on '>' or adjacent walkable tile."
+    },
+    {
+      "id": "C13",
+      "category": "feature",
+      "description": "Floor persistence across descent/ascent: the previous floor's layout is preserved when revisited.",
+      "testMethod": "integration",
+      "testSteps": [
+        "Capture floor 0's tile grid before descending.",
+        "Descend to floor 1, then ascend back to floor 0.",
+        "Capture floor 0's tile grid again and compare."
+      ],
+      "threshold": "100% of tiles identical before and after the round-trip."
+    },
+    {
+      "id": "C14",
+      "category": "feature",
+      "description": "World/run object supports at least 3 floors generated lazily or eagerly with distinct seeds derived from a master seed.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Construct a World with master seed=999 and 3 floors.",
+        "Generate floor 0, 1, 2.",
+        "Verify each floor exists, is non-empty, and that floors 0 and 1 differ (hash compare)."
+      ],
+      "threshold": "All 3 floors generated; floor 0 != floor 1 by tile-hash."
+    },
+    {
+      "id": "C15",
+      "category": "rendering",
+      "description": "Render output uses the documented glyph set: '#' walls, '.' floor, '+' doors, '<' upstairs, '>' downstairs, '@' player.",
+      "testMethod": "integration",
+      "testSteps": [
+        "Run the game in a non-interactive headless render mode (or call the renderer's frame-to-string function).",
+        "Verify each glyph type appears or is renderable; verify the player glyph '@' is visible at the player position."
+      ],
+      "threshold": "All six glyphs are produced by the renderer when the corresponding tile/entity exists."
+    },
+    {
+      "id": "C16",
+      "category": "rendering",
+      "description": "The render loop displays the generated dungeon (not just a blank/static floor) when the game starts.",
+      "testMethod": "manual-or-snapshot",
+      "testSteps": [
+        "Launch the game with seed=1.",
+        "Capture the initial frame (snapshot or screenshot).",
+        "Verify it shows walls, floor, at least one room boundary, and the player glyph."
+      ],
+      "threshold": "Frame contains '#', '.', and '@' glyphs in a recognizably room-shaped layout."
+    },
+    {
+      "id": "C17",
+      "category": "movement",
+      "description": "Player cannot walk through walls; bumping into '#' is a no-op (does not move the player).",
+      "testMethod": "unit",
+      "testSteps": [
+        "Place the player adjacent to a wall tile.",
+        "Issue a move command into the wall.",
+        "Verify the player's position is unchanged and the floor/turn state is consistent."
+      ],
+      "threshold": "Player position unchanged after wall bump."
+    },
+    {
+      "id": "C18",
+      "category": "movement",
+      "description": "Player can move through doors ('+') as if they were floor tiles (or after a simple open action; either is acceptable as long as it's documented).",
+      "testMethod": "unit",
+      "testSteps": [
+        "Place the player adjacent to a door tile.",
+        "Issue a move command into the door.",
+        "Verify the player either moves onto the door tile or opens it then moves onto it."
+      ],
+      "threshold": "Player traverses door successfully."
+    },
+    {
+      "id": "C19",
+      "category": "cli",
+      "description": "The game accepts a `--seed` CLI argument that controls dungeon generation.",
+      "testMethod": "integration",
+      "testSteps": [
+        "Run the game twice with `--seed 7` and capture each initial frame.",
+        "Run again with `--seed 8` and capture the frame.",
+        "Verify the two seed=7 frames are identical and that seed=7 differs from seed=8."
+      ],
+      "threshold": "Same seed -> identical frames; different seed -> different frames."
+    },
+    {
+      "id": "C20",
+      "category": "tests",
+      "description": "Automated test suite covers generator determinism, connectivity, and stairs invariants.",
+      "testMethod": "unit",
+      "testSteps": [
+        "Locate test files under `tests/` covering the generator.",
+        "Run `pytest` (or the project's chosen runner)."
+      ],
+      "threshold": "Test suite includes >=5 tests targeting the dungeon generator and all of them pass."
+    },
+    {
+      "id": "C21",
+      "category": "regression",
+      "description": "Sprint 1 functionality is preserved: project still launches, the entity/tile/grid model still works, and basic player movement on a floor still functions.",
+      "testMethod": "integration",
+      "testSteps": [
+        "Launch the game.",
+        "Verify it starts without errors.",
+        "Verify the player glyph appears and at least one move command in a free direction succeeds."
+      ],
+      "threshold": "Game starts, renders, and accepts a movement command."
+    },
+    {
+      "id": "C22",
+      "category": "documentation",
+      "description": "README or a docs file documents the dungeon generator: its tunable parameters, the glyph legend, and the `--seed` flag.",
+      "testMethod": "static",
+      "testSteps": [
+        "Open README.md (or docs/) and search for sections referencing 'dungeon', 'seed', and the glyph legend."
+      ],
+      "threshold": "All three topics (generator params, glyph legend, --seed flag) are documented."
+    }
+  ],
+  "outOfScope": [
+    "Field of view / fog of war (Sprint 3).",
+    "Combat, HP, attack, defense, damage log (Sprint 3).",
+    "Items, inventory, pickups (Sprint 4).",
+    "Monsters and AI behaviors (Sprint 5).",
+    "Permadeath, save/load, run summary, daily seeds (Sprint 6 — the `--seed` flag here is generation-only, not a full daily-seed system).",
+    "Whisperer / LLM integration (Sprint 7+).",
+    "Themed archetypes and per-archetype palettes (Sprint 11) — Sprint 2 produces a single generic dungeon style.",
+    "Advanced generation (BSP, cellular automata caves, vaults, secret rooms). A simple rooms-and-corridors algorithm is sufficient.",
+    "Sound, leaderboards, rebindable keys (Sprint 12)."
+  ],
+  "regressionSprints": [1],
+  "deliverables": [
+    "Dungeon generator module producing seedable rooms-and-corridors floors.",
+    "World/Floor abstraction supporting >=3 floors with up/down stair transitions.",
+    "Render loop displaying generated dungeon with the documented glyph set.",
+    "`--seed` CLI flag wired through to the generator.",
+    "Automated tests for determinism, connectivity, and stair invariants.",
+    "Updated README documenting generator params, glyph legend, and the `--seed` flag.",
+    "Commits following the convention `harness(sprint-02): description [C-ID]`."
+  ]
+}
