@@ -3,9 +3,10 @@
   "completedSprints": [
     1,
     2,
-    3
+    3,
+    4
   ],
-  "currentSprint": 4,
+  "currentSprint": 5,
   "totalSprints": 5,
   "completedFeatures": [
     "harness/lib/utils.py \u00e2\u20ac\u201d port of utils.sh (all utility functions)",
@@ -17,7 +18,12 @@
     "tests/helpers/claude.cmd -- Windows PATH shim",
     "tests/layer1/test_invoke.py -- 22 tests",
     "harness/lib/git.py -- Python port of git.sh (9 functions)",
-    "tests/layer1/test_git.py -- 19 Python tests porting test-git.bats"
+    "tests/layer1/test_git.py -- 19 Python tests porting test-git.bats",
+    "harness/lib/planner.py -- Python port of planner.sh",
+    "harness/lib/contract.py -- Python port of contract.sh (with tolerance logic)",
+    "harness/lib/generator.py -- Python port of generator.sh (blocked=2)",
+    "harness/lib/evaluator.py -- Python port of evaluator.sh (field tolerance)",
+    "tests/layer1/test_planner/contract/generator/evaluator.py -- 40 tests"
   ],
   "keyFiles": {
     "utils": "harness/lib/utils.py",
@@ -27,7 +33,11 @@
     "invoke": "harness/lib/invoke.py",
     "mockClaude": "tests/helpers/mock_claude.py",
     "git": "harness/lib/git.py",
-    "testGit": "tests/layer1/test_git.py"
+    "testGit": "tests/layer1/test_git.py",
+    "planner": "harness/lib/planner.py",
+    "contract": "harness/lib/contract.py",
+    "generator": "harness/lib/generator.py",
+    "evaluator": "harness/lib/evaluator.py"
   },
   "techStack": {
     "language": "Python 3.8+",
@@ -38,8 +48,8 @@
   "devServerPort": 0,
   "git": {
     "harnessBranch": "harness/rewrite-in-python",
-    "latestTag": "harness/sprint-03/pass",
-    "latestMergeSha": "5b072f56cb763d6612bfaee1d74b10bd73a29ee3",
+    "latestTag": "harness/sprint-04/pass",
+    "latestMergeSha": "94a3d1d0f9e1caaf3cffe9a524a2329f2aebab1f",
     "prNumbers": []
   }
 }
