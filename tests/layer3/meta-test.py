@@ -164,25 +164,16 @@ def main() -> int:
     )
     _check(results, "At least one sprint passed evaluation", any_pass)
 
-    # Look for generated test files anywhere in dest (generator chooses the location)
-    test_files = [
-        p for p in dest.rglob("*.py")
-        if "test" in p.name.lower()
-        and not any(part in (".venv", "__pycache__", "harness", ".claude")
-                    for part in p.parts)
-        and p.parent != dest  # exclude copied root-level files
-    ]
+    meta_tests_dir = dest / "meta-tests"
+    test_files = (
+        list(meta_tests_dir.glob("test_*.py")) + list(meta_tests_dir.glob("*.bats"))
+        if meta_tests_dir.is_dir() else []
+    )
     _check(results, "Test files were created", len(test_files) > 0)
-    print(f"  INFO: {len(test_files)} test file(s) generated: "
-          + ", ".join(p.name for p in test_files))
+    print(f"  INFO: {len(test_files)} test files generated")
 
-    # Look for a run entry point anywhere the generator may have placed it
-    run_candidates = list(dest.rglob("meta_run.py")) + list(dest.rglob("run.py"))
-    run_candidates = [p for p in run_candidates
-                      if not any(part in (".venv", "harness", ".claude")
-                                 for part in p.parts)]
-    run_py = run_candidates[0] if run_candidates else None
-    if run_py:
+    run_py = dest / "meta-tests" / "run.py"
+    if run_py.is_file():
         print()
         print("=== RUNNING GENERATED TESTS ===")
         run_result = subprocess.run(
@@ -210,7 +201,7 @@ def main() -> int:
 
     print()
     print(f"Meta test output: {log_path}")
-    print(f"Generated tests:  {[str(p) for p in test_files] or 'none found'}")
+    print(f"Generated tests:  {dest / 'meta-tests'}")
 
     return 0 if failed == 0 else 1
 
