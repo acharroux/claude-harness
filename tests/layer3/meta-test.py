@@ -125,16 +125,13 @@ def main() -> int:
                 str(venv_python),
                 str(dest / "harness" / "orchestrate.py"),
                 (
-                    "Build a comprehensive Python unittest test suite for this project "
-                    "(a multi-agent harness). The test suite should cover: "
-                    "(1) Unit tests for all pure functions in harness/lib/utils.py "
-                    "(slugify, sprint_pad, sprint_dir, json_read, file_exists, "
-                    "init_harness_state, update_handoff, update_regression_registry), "
-                    "(2) Git operation tests for harness/lib/git.py using isolated temp repos, "
-                    "(3) Hook validation tests for harness/hooks/on-generator-stop.py, "
-                    "on-evaluator-stop.py, and on-stop.py using fixture files. "
-                    "Put all tests in a meta-tests/ directory. Include a "
-                    "meta-tests/run.py entry point that runs them with unittest."
+                    "Build a Python unittest test suite for this harness project. "
+                    "Create exactly 2 sprints: "
+                    "Sprint 1 — tests/meta_test_utils.py covering slugify, sprint_pad, "
+                    "sprint_dir, json_read, file_exists from harness/lib/utils.py. "
+                    "Sprint 2 — tests/meta_test_hooks.py covering harness/hooks/"
+                    "on-generator-stop.py, on-evaluator-stop.py, on-stop.py. "
+                    "Include a tests/meta_run.py entry point that runs both with unittest."
                 ),
                 "--project-type", "cli-tool",
                 "--max-cost", "100",
@@ -142,7 +139,8 @@ def main() -> int:
             cwd=str(dest),
             stdout=log_fh,
             stderr=log_fh,
-            timeout=3600,
+            # No timeout: writing to a file has no pipe-buffer deadlock risk,
+            # and the meta test legitimately takes 30-90 minutes.
             env=meta_env,
         )
     print(log_path.read_text(encoding="utf-8", errors="replace"))
@@ -166,16 +164,25 @@ def main() -> int:
     )
     _check(results, "At least one sprint passed evaluation", any_pass)
 
-    meta_tests_dir = dest / "meta-tests"
-    test_files = (
-        list(meta_tests_dir.glob("test_*.py")) + list(meta_tests_dir.glob("*.bats"))
-        if meta_tests_dir.is_dir() else []
-    )
+    # Look for generated test files anywhere in dest (generator chooses the location)
+    test_files = [
+        p for p in dest.rglob("*.py")
+        if "test" in p.name.lower()
+        and not any(part in (".venv", "__pycache__", "harness", ".claude")
+                    for part in p.parts)
+        and p.parent != dest  # exclude copied root-level files
+    ]
     _check(results, "Test files were created", len(test_files) > 0)
-    print(f"  INFO: {len(test_files)} test files generated")
+    print(f"  INFO: {len(test_files)} test file(s) generated: "
+          + ", ".join(p.name for p in test_files))
 
-    run_py = dest / "meta-tests" / "run.py"
-    if run_py.is_file():
+    # Look for a run entry point anywhere the generator may have placed it
+    run_candidates = list(dest.rglob("meta_run.py")) + list(dest.rglob("run.py"))
+    run_candidates = [p for p in run_candidates
+                      if not any(part in (".venv", "harness", ".claude")
+                                 for part in p.parts)]
+    run_py = run_candidates[0] if run_candidates else None
+    if run_py:
         print()
         print("=== RUNNING GENERATED TESTS ===")
         run_result = subprocess.run(
@@ -203,7 +210,7 @@ def main() -> int:
 
     print()
     print(f"Meta test output: {log_path}")
-    print(f"Generated tests:  {dest / 'meta-tests'}")
+    print(f"Generated tests:  {[str(p) for p in test_files] or 'none found'}")
 
     return 0 if failed == 0 else 1
 
