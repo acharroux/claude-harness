@@ -127,11 +127,12 @@ def main() -> int:
                 (
                     "Build a Python unittest test suite for this harness project. "
                     "Create exactly 2 sprints: "
-                    "Sprint 1 — tests/meta_test_utils.py covering slugify, sprint_pad, "
+                    "Sprint 1 — meta-tests/test_utils.py covering slugify, sprint_pad, "
                     "sprint_dir, json_read, file_exists from harness/lib/utils.py. "
-                    "Sprint 2 — tests/meta_test_hooks.py covering harness/hooks/"
+                    "Sprint 2 — meta-tests/test_hooks.py covering harness/hooks/"
                     "on-generator-stop.py, on-evaluator-stop.py, on-stop.py. "
-                    "Include a tests/meta_run.py entry point that runs both with unittest."
+                    "ALL files MUST go in the meta-tests/ directory. "
+                    "Include a meta-tests/run.py entry point that runs both with unittest."
                 ),
                 "--project-type", "cli-tool",
                 "--max-cost", "100",
