@@ -546,8 +546,11 @@ def run_fix(prompt: str) -> int:
     )
 
     if evaluator_mod.invoke_evaluator(fix_id, 1):
-        subprocess.run(["git", "tag", f"harness/{fix_id}/pass"],
-                       check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        git_mod.merge_named_branch(
+            harness_branch, sprint_branch,
+            f"harness({fix_id}): fix verified",
+            f"harness/{fix_id}/pass",
+        )
         utils.update_regression_registry(fix_id)
         git_mod.commit_harness_state(f"harness({fix_id}): fix verified")
         git_mod.create_fix_pr(sprint_branch, harness_branch, fix_id, prompt,
@@ -622,17 +625,11 @@ def run_refactor(prompt: str) -> int:
 
     if (evaluator_mod.invoke_evaluator("refactor-001", 1)
             and evaluator_mod.invoke_regression()):
-        subprocess.run(["git", "checkout", harness_branch], check=False,
-                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        subprocess.run(
-            ["git", "merge", "--no-ff", sprint_branch, "-m",
-             "harness(refactor): merge (PASS, full regression)"],
-            check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        git_mod.merge_named_branch(
+            harness_branch, sprint_branch,
+            "harness(refactor): merge (PASS, full regression)",
+            "harness/refactor-001/pass",
         )
-        subprocess.run(["git", "tag", "harness/refactor-001/pass"],
-                       check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        subprocess.run(["git", "branch", "-d", sprint_branch],
-                       check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         git_mod.commit_harness_state(
             "harness(refactor): verified with full regression"
         )

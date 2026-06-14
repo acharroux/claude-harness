@@ -207,6 +207,45 @@ def merge_sprint(harness_branch: str, sprint_num, attempt) -> str:
     return merge_sha
 
 
+def merge_named_branch(harness_branch: str, sprint_branch: str,
+                       merge_msg: str, tag: str) -> str:
+    """Merge any named branch (fix, refactor) into the harness branch.
+
+    Mirrors the dirty-tree protection in merge_sprint():
+    1. Commit any uncommitted changes on the sprint branch.
+    2. Checkout harness_branch and commit any leftover files there.
+    3. Merge --no-ff with the provided message.
+    4. Tag the merge commit.
+    5. Delete the sprint branch.
+
+    Returns the merge commit SHA.
+    """
+    log_info(f"Merging {sprint_branch} to {harness_branch}")
+
+    _run(["git", "add", "-A"], check=False, capture=True)
+    if not _git_ok("diff", "--cached", "--quiet"):
+        _run(["git", "commit", "-q", "-m", f"harness: artifacts on {sprint_branch}"],
+             check=False, capture=True)
+
+    _run(["git", "checkout", harness_branch], check=True, capture=True)
+
+    _run(["git", "add", "-A"], check=False, capture=True)
+    if not _git_ok("diff", "--cached", "--quiet"):
+        _run(["git", "commit", "-q", "-m",
+              f"harness: harness branch cleanup before merge of {sprint_branch}"],
+             check=False, capture=True)
+
+    _run(["git", "merge", "--no-ff", sprint_branch, "-m", merge_msg],
+         check=True, capture=True)
+
+    merge_sha = _git_out("rev-parse", "HEAD")
+    _run(["git", "tag", tag], check=False, capture=True)
+    log_success(f"Tagged: {tag}")
+    _run(["git", "branch", "-d", sprint_branch], check=False, capture=True)
+
+    return merge_sha
+
+
 def fail_sprint_attempt(harness_branch: str, sprint_num, attempt) -> None:
     """Tag a failed sprint attempt and switch back to the harness branch.
 
