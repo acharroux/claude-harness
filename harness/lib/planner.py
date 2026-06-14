@@ -1,14 +1,12 @@
 """Python port of harness/lib/planner.sh.
 
-Provides invoke_planner(mode='new') which calls the planner agent via
-invoke_claude and verifies that product-spec.md and sprint-plan.json were
-produced.
+Invokes the planner agent and verifies that product-spec.md and sprint-plan.json
+were produced.
 
 Public API:
-    invoke_planner(mode: str = 'new') -> int
+    invoke_planner(mode='new') -> int
 
-Returns the number of sprints declared in sprint-plan.json. Raises RuntimeError
-on failure (mirroring the bash early-return on missing outputs / invalid JSON).
+Returns the number of sprints in sprint-plan.json. Raises RuntimeError on failure.
 """
 
 from __future__ import annotations
@@ -51,21 +49,13 @@ def invoke_planner(mode: str = "new") -> int:
     ----------
     mode : "new" (default) or "extend".
 
-    Returns
-    -------
-    int -- the number of entries in sprint-plan.json's `sprints` array.
-
-    Raises
-    ------
-    RuntimeError on any of: claude invocation failed, missing outputs, or
-    sprint-plan.json that cannot be parsed.
+    Raises RuntimeError on invocation failure, missing outputs, or invalid JSON.
     """
     log_phase(f"PLANNER PHASE ({mode})")
-
-    prompt = _EXTEND_PROMPT if mode == "extend" else _NEW_PROMPT
-
     log_info("Invoking planner...")
-    rc = invoke_claude("planner", prompt, max_turns=50)
+
+    rc = invoke_claude("planner", _EXTEND_PROMPT if mode == "extend" else _NEW_PROMPT,
+                       max_turns=50)
     if rc != 0:
         log_error("Planner invocation failed")
         raise RuntimeError(f"planner invocation exited with code {rc}")
@@ -90,9 +80,8 @@ def invoke_planner(mode: str = "new") -> int:
     sprints = plan.get("sprints") if isinstance(plan, dict) else None
     sprint_count = len(sprints) if isinstance(sprints, list) else 0
 
-    # Web-frontend projects expect a design-spec.md alongside the spec
-    project_type = json_read(str(Path(HARNESS_STATE) / "config.json"), ".projectType")
-    if project_type == "web-frontend":
+    # Web-frontend projects should also produce a design-spec.md
+    if json_read(str(Path(HARNESS_STATE) / "config.json"), ".projectType") == "web-frontend":
         design_path = Path(HARNESS_STATE) / "design-spec.md"
         if file_exists(str(design_path)):
             log_success("Design spec produced for web-frontend project")

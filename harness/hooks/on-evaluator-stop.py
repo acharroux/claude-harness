@@ -8,11 +8,13 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import Optional
 
 HARNESS_STATE = os.environ.get("HARNESS_STATE", "harness-state")
 
 
 def _read_json(path: Path) -> dict:
+    """Read JSON from path; return {} on any error."""
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -21,6 +23,19 @@ def _read_json(path: Path) -> dict:
 
 def _read_status(path: Path) -> str:
     return _read_json(path).get("status") or ""
+
+
+def _find_sprint_by_status(target_status: str) -> Optional[Path]:
+    """Return first sprint directory whose status.json matches target_status."""
+    sprints_dir = Path(HARNESS_STATE) / "sprints"
+    for pattern in ("sprint-*", "fix-*", "refactor-*"):
+        for d in sorted(sprints_dir.glob(pattern)):
+            if not d.is_dir():
+                continue
+            status_file = d / "status.json"
+            if status_file.is_file() and _read_status(status_file) == target_status:
+                return d
+    return None
 
 
 def main() -> int:
@@ -41,32 +56,19 @@ def main() -> int:
                         file=sys.stderr,
                     )
                     return 2
-                data = _read_json(review)
-                if not data.get("decision"):
+                if not _read_json(review).get("decision"):
                     print(
-                        "contract-review.json is missing 'decision' field (must be 'accepted' or 'revise').",
+                        "contract-review.json is missing 'decision' field "
+                        "(must be 'accepted' or 'revise').",
                         file=sys.stderr,
                     )
                     return 2
                 return 0
 
-    # Sprint evaluation mode: find the sprint that's ready-for-eval
-    eval_sprint: Path | None = None
-    for pattern in ("sprint-*", "fix-*", "refactor-*"):
-        for d in sorted(sprints_dir.glob(pattern)):
-            if not d.is_dir():
-                continue
-            status_file = d / "status.json"
-            if status_file.is_file() and _read_status(status_file) == "ready-for-eval":
-                eval_sprint = d
-                break
-        if eval_sprint:
-            break
-
+    eval_sprint = _find_sprint_by_status("ready-for-eval")
     if eval_sprint is None:
         return 0
 
-    # eval-report.json must exist
     report_path = eval_sprint / "eval-report.json"
     if not report_path.is_file():
         print(
@@ -78,7 +80,7 @@ def main() -> int:
     report = _read_json(report_path)
 
     # Must have a result field (tolerates overallResult / result / verdict)
-    if not (report.get("overallResult") or report.get("result") or report.get("verdict")):
+    if not any(report.get(k) for k in ("overallResult", "result", "verdict")):
         print(
             "eval-report.json is missing result field (overallResult, result, or verdict).",
             file=sys.stderr,
@@ -86,10 +88,7 @@ def main() -> int:
         return 2
 
     # Must have a results container (tolerates criteriaResults / features / score / results)
-    if not (report.get("criteriaResults") is not None
-            or report.get("features") is not None
-            or report.get("score") is not None
-            or report.get("results") is not None):
+    if not any(report.get(k) is not None for k in ("criteriaResults", "features", "score", "results")):
         print("eval-report.json is missing results data.", file=sys.stderr)
         return 2
 

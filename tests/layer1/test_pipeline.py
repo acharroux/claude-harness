@@ -1,7 +1,7 @@
 """End-to-end integration test for the Python harness orchestrator.
 
-Drives orchestrate.py's run_new_build() (or equivalent) through a complete
-two-sprint pipeline using mock claude, then asserts the expected artifacts.
+Drives orchestrate.py through a complete two-sprint pipeline using mock claude,
+then asserts the expected artifacts.
 """
 
 from __future__ import annotations
@@ -17,6 +17,9 @@ _HERE = Path(__file__).resolve().parent
 _PROJECT = _HERE.parent.parent
 if str(_PROJECT) not in sys.path:
     sys.path.insert(0, str(_PROJECT))
+
+PIPELINE_TIMEOUT = 120  # seconds; mock claude is fast but the subprocess has overhead
+DRY_RUN_TIMEOUT = 30
 
 from tests.helpers.test_helper import HarnessTestCase, FIXTURE_DIR
 
@@ -53,7 +56,7 @@ class PipelineIntegrationTest(HarnessTestCase):
             env={**os.environ, "HARNESS_ROOT": str(_PROJECT)},
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            timeout=120,
+            timeout=PIPELINE_TIMEOUT,
         )
         return result
 
@@ -124,7 +127,7 @@ class PipelineIntegrationTest(HarnessTestCase):
             env={**os.environ, "HARNESS_ROOT": str(_PROJECT)},
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            timeout=30,
+            timeout=DRY_RUN_TIMEOUT,
         )
         self.assertEqual(result.returncode, 0)
 

@@ -7,6 +7,7 @@ compatible with the bash reference implementation.
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import re
@@ -29,13 +30,18 @@ _BLUE = "\033[0;34m"
 _CYAN = "\033[0;36m"
 _NC = "\033[0m"
 
+# Compiled once at import time
+_TOKEN_RE = re.compile(
+    r'([A-Za-z_][A-Za-z0-9_-]*)|\[(\d+)\]|\["([^"]*)"\]|\[\'([^\']*)\'\]'
+)
+
 
 # ---------------------------------------------------------------------------
 # Logging helpers
 # ---------------------------------------------------------------------------
 
 def _use_color() -> bool:
-    """Color is enabled only when stderr is a TTY and NO_COLOR is unset."""
+    """Return True when stderr is a TTY and NO_COLOR is unset."""
     if os.environ.get("NO_COLOR"):
         return False
     try:
@@ -51,7 +57,7 @@ def _emit(color: str, message: str) -> None:
         sys.stderr.write(f"[harness] {message}\n")
     try:
         sys.stderr.flush()
-    except Exception:
+    except OSError:
         pass
 
 
@@ -72,10 +78,8 @@ def log_error(message: str) -> None:
 
 
 def log_phase(message: str) -> None:
-    bar = "━" * 51  # box drawing horizontal heavy ; matches bash visual
-    bar_ascii = "-" * 51  # ASCII fallback
     use_color = _use_color()
-    sep = bar if use_color else bar_ascii
+    sep = ("━" * 51) if use_color else ("-" * 51)
     sys.stderr.write("\n")
     if use_color:
         sys.stderr.write(f"{_CYAN}{sep}{_NC}\n")
@@ -88,7 +92,7 @@ def log_phase(message: str) -> None:
     sys.stderr.write("\n")
     try:
         sys.stderr.flush()
-    except Exception:
+    except OSError:
         pass
 
 
@@ -112,8 +116,6 @@ def slugify(s: str) -> str:
     Matches bash:  tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g'
                    | sed 's/--*/-/g' | sed 's/^-//' | sed 's/-$//' | cut -c1-50
     """
-    if s is None:
-        return ""
     out = str(s).lower()
     out = re.sub(r"[^a-z0-9]", "-", out)
     out = re.sub(r"-+", "-", out)
@@ -136,44 +138,34 @@ def _walk_field(data: Any, field: str) -> Any:
     Supports: .foo, .foo.bar, .foo[0], .foo[0].bar, .foo["bar"]
     Returns None on missing key or out-of-range index.
     """
-    expr = field.strip()
-    if expr.startswith("."):
-        expr = expr[1:]
-    if expr == "":
+    expr = field.strip().lstrip(".")
+    if not expr:
         return data
 
     cur = data
-    # Tokenize: split on dots that are not inside brackets, then parse [N] or ["k"]
-    token_re = re.compile(r'([A-Za-z_][A-Za-z0-9_-]*)|\[(\d+)\]|\["([^"]*)"\]|\[\'([^\']*)\'\]')
     pos = 0
     while pos < len(expr):
-        ch = expr[pos]
-        if ch == ".":
+        if expr[pos] == ".":
             pos += 1
             continue
-        m = token_re.match(expr, pos)
+        m = _TOKEN_RE.match(expr, pos)
         if not m:
             return None
         name, idx, qkey1, qkey2 = m.group(1), m.group(2), m.group(3), m.group(4)
         if name is not None:
-            if isinstance(cur, dict):
-                if name not in cur:
-                    return None
-                cur = cur[name]
-            else:
+            if not isinstance(cur, dict) or name not in cur:
                 return None
+            cur = cur[name]
         elif idx is not None:
             i = int(idx)
-            if isinstance(cur, list) and 0 <= i < len(cur):
-                cur = cur[i]
-            else:
+            if not isinstance(cur, list) or not (0 <= i < len(cur)):
                 return None
-        elif qkey1 is not None or qkey2 is not None:
+            cur = cur[i]
+        else:
             key = qkey1 if qkey1 is not None else qkey2
-            if isinstance(cur, dict) and key in cur:
-                cur = cur[key]
-            else:
+            if not isinstance(cur, dict) or key not in cur:
                 return None
+            cur = cur[key]
         pos = m.end()
     return cur
 
@@ -181,8 +173,7 @@ def _walk_field(data: Any, field: str) -> Any:
 def json_read(filepath: Any, field: str) -> str:
     """Read a JSON field from a file using a jq-like field expression.
 
-    Returns "" on missing file/parse error.
-    Returns "" or "null" on missing field (matching bash tolerance).
+    Returns "" on missing file, parse error, or missing field.
     Never raises.
     """
     try:
@@ -200,7 +191,6 @@ def json_read(filepath: Any, field: str) -> str:
         return ""
 
     if value is None:
-        # Match bash `jq -r` behavior: missing key prints "null"
         return ""
     if isinstance(value, bool):
         return "true" if value else "false"
@@ -242,11 +232,9 @@ def init_harness_state(prompt: str, project_type: str = "general") -> None:
     (state / "config.json").write_text(
         json.dumps(config, indent=2) + "\n", encoding="utf-8"
     )
-
     (state / "cost-log.json").write_text(
         '{"invocations": [], "totalCost": 0}\n', encoding="utf-8"
     )
-
     (state / "regression" / "registry.json").write_text(
         '{"sprints": {}, "lastFullRun": null}\n', encoding="utf-8"
     )
@@ -270,37 +258,37 @@ def init_harness_state(prompt: str, project_type: str = "general") -> None:
 # Cost log
 # ---------------------------------------------------------------------------
 
+def _parse_tokens(output_json: str) -> tuple:
+    """Extract (input_tokens, output_tokens) from claude output JSON string."""
+    if not (isinstance(output_json, str) and output_json.strip()):
+        return 0, 0
+    try:
+        parsed = json.loads(output_json)
+        usage = parsed.get("usage") if isinstance(parsed, dict) else None
+        if isinstance(usage, dict):
+            return int(usage.get("input_tokens") or 0), int(usage.get("output_tokens") or 0)
+    except (ValueError, TypeError):
+        pass
+    return 0, 0
+
+
 def log_cost(role: str, sprint: Any, output_json: str) -> None:
     """Append a cost-log entry parsed from claude output JSON.
 
     Tolerates empty / non-JSON input — falls back to zero token counts.
     """
-    input_tokens = 0
-    output_tokens = 0
-    if isinstance(output_json, str) and output_json.strip():
-        try:
-            parsed = json.loads(output_json)
-            usage = parsed.get("usage") if isinstance(parsed, dict) else None
-            if isinstance(usage, dict):
-                input_tokens = int(usage.get("input_tokens") or 0)
-                output_tokens = int(usage.get("output_tokens") or 0)
-        except (ValueError, TypeError):
-            pass
+    input_tokens, output_tokens = _parse_tokens(output_json)
 
     cost_file = Path(HARNESS_STATE) / "cost-log.json"
-    if cost_file.is_file():
-        try:
-            data = json.loads(cost_file.read_text(encoding="utf-8"))
-        except ValueError:
-            data = {"invocations": [], "totalCost": 0}
-    else:
+    try:
+        data = json.loads(cost_file.read_text(encoding="utf-8")) if cost_file.is_file() else {}
+    except ValueError:
+        data = {}
+    if not isinstance(data.get("invocations"), list):
         data = {"invocations": [], "totalCost": 0}
 
-    if "invocations" not in data or not isinstance(data["invocations"], list):
-        data["invocations"] = []
-
     try:
-        sprint_val = int(sprint)
+        sprint_val: Any = int(sprint)
     except (TypeError, ValueError):
         sprint_val = sprint
 
@@ -318,11 +306,7 @@ def log_cost(role: str, sprint: Any, output_json: str) -> None:
 
 def check_cost_cap() -> None:
     """Emit an info notice referencing the cost log. No-op beyond logging."""
-    config_path = Path(HARNESS_STATE) / "config.json"
-    # Read totalCostCap defensively (used by the bash heuristic)
-    json_read(str(config_path), ".totalCostCap")
     log_info(f"Cost tracking: see {HARNESS_STATE}/cost-log.json for invocation details")
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -346,37 +330,33 @@ def update_progress(
             if isinstance(sprints_list, list) and 0 <= idx < len(sprints_list):
                 entry = sprints_list[idx]
                 if isinstance(entry, dict):
-                    sprint_name = (
-                        entry.get("name") or entry.get("title") or sprint_name
-                    )
+                    sprint_name = entry.get("name") or entry.get("title") or sprint_name
         except (ValueError, OSError, TypeError):
             pass
 
-    timestamp = _now_utc_iso()
     lines = [
         "",
         f"## Sprint {sprint_pad(sprint_num)}: {sprint_name}",
         "",
         f"- **Status**: {status}",
         f"- **Attempt**: {attempt}",
-        f"- **Time**: {timestamp}",
+        f"- **Time**: {_now_utc_iso()}",
     ]
     if merge_sha:
         lines.append(f"- **Merge commit**: {merge_sha}")
     lines.append("")
-    text = "\n".join(lines) + "\n"
 
     progress_path = Path(HARNESS_STATE) / "progress.md"
     progress_path.parent.mkdir(parents=True, exist_ok=True)
     with progress_path.open("a", encoding="utf-8") as fh:
-        fh.write(text)
+        fh.write("\n".join(lines) + "\n")
 
 
 # ---------------------------------------------------------------------------
 # Handoff
 # ---------------------------------------------------------------------------
 
-_DEFAULT_HANDOFF = {
+_DEFAULT_HANDOFF: dict = {
     "projectName": "",
     "completedSprints": [],
     "currentSprint": 1,
@@ -406,43 +386,30 @@ def update_handoff(
     handoff_path = Path(HARNESS_STATE) / "handoff.json"
     handoff_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if not file_exists(str(handoff_path)):
-        # Initialize with the standard schema
-        data = json.loads(json.dumps(_DEFAULT_HANDOFF))  # deep copy
-    else:
+    if file_exists(str(handoff_path)):
         try:
             data = json.loads(handoff_path.read_text(encoding="utf-8"))
         except ValueError:
-            data = json.loads(json.dumps(_DEFAULT_HANDOFF))
+            data = copy.deepcopy(_DEFAULT_HANDOFF)
+    else:
+        data = copy.deepcopy(_DEFAULT_HANDOFF)
 
     if not isinstance(data, dict):
-        data = json.loads(json.dumps(_DEFAULT_HANDOFF))
+        data = copy.deepcopy(_DEFAULT_HANDOFF)
 
-    # Ensure required keys exist
     data.setdefault("completedSprints", [])
     data.setdefault("git", {})
     if not isinstance(data["git"], dict):
         data["git"] = {}
 
     sprint_int = int(sprint_num)
-
-    completed = data["completedSprints"]
-    if not isinstance(completed, list):
-        completed = []
+    completed = data["completedSprints"] if isinstance(data["completedSprints"], list) else []
     completed.append(sprint_int)
-    # Deduplicate while preserving order
-    seen = set()
-    deduped = []
-    for v in completed:
-        if v not in seen:
-            seen.add(v)
-            deduped.append(v)
-    data["completedSprints"] = deduped
-
+    data["completedSprints"] = list(dict.fromkeys(completed))
     data["currentSprint"] = sprint_int + 1
     data["git"]["latestTag"] = tag
     data["git"]["latestMergeSha"] = merge_sha
-    if harness_branch is not None and harness_branch != "":
+    if harness_branch:
         data["git"]["harnessBranch"] = harness_branch
 
     handoff_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
@@ -468,10 +435,10 @@ def update_regression_registry(sprint_num: Any) -> None:
     except (OSError, ValueError):
         return
 
-    criteria_ids = []
-    for c in contract.get("criteria", []) or []:
-        if isinstance(c, dict) and "id" in c:
-            criteria_ids.append(c["id"])
+    criteria_ids = [
+        c["id"] for c in contract.get("criteria", []) or []
+        if isinstance(c, dict) and "id" in c
+    ]
 
     if registry_path.is_file():
         try:
@@ -483,8 +450,7 @@ def update_regression_registry(sprint_num: Any) -> None:
 
     if not isinstance(registry, dict):
         registry = {"sprints": {}, "lastFullRun": None}
-    registry.setdefault("sprints", {})
-    if not isinstance(registry["sprints"], dict):
+    if not isinstance(registry.get("sprints"), dict):
         registry["sprints"] = {}
 
     registry["sprints"][str(int(sprint_num))] = {

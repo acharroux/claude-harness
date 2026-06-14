@@ -81,13 +81,15 @@ def main() -> int:
         "PATH": str(venv_bin) + os.pathsep + os.environ.get("PATH", ""),
     }
     smoke_env.pop("PYTHONHOME", None)
-    # Strip mock claude env vars so real Claude is always used
+    # Strip mock claude env vars and the test helpers dir from PATH
+    # so real Claude is always used (not the mock shim).
+    _helpers_abs = str((PROJECT_DIR / "tests" / "helpers").resolve())
     for _var in ("MOCK_CLAUDE_FIXTURE_DIR", "MOCK_CLAUDE_SCENARIO",
                  "MOCK_CLAUDE_LOG", "MOCK_CLAUDE_STATE_DIR"):
         smoke_env.pop(_var, None)
     smoke_env["PATH"] = os.pathsep.join(
         p for p in smoke_env["PATH"].split(os.pathsep)
-        if "tests" not in p.lower() and "helpers" not in p.lower()
+        if str(Path(p).resolve()) != _helpers_abs
     )
 
     with open(str(log_path), "w", encoding="utf-8", errors="replace") as log_fh:

@@ -1,19 +1,19 @@
 """Python port of harness/lib/generator.sh.
 
-Provides invoke_generator(sprint_num, attempt=1) which invokes the generator
-agent and verifies it produced a status.json. Returns:
-  0 on success ('ready-for-eval' or any non-blocked status)
-  1 on invocation failure
-  2 when status.json reports 'blocked' (matches bash `return 2`).
+Invokes the generator agent and verifies it produced a status.json.
 
 Public API:
-    invoke_generator(sprint_num, attempt: int = 1) -> int
+    invoke_generator(sprint_num: int, attempt: int = 1) -> int
+
+Returns:
+  EXIT_OK (0)      — completed; status.json says 'ready-for-eval'
+  EXIT_FAIL (1)    — invocation failed or status.json missing
+  EXIT_BLOCKED (2) — status.json reports 'blocked' (matches bash `return 2`)
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from harness.lib.invoke import invoke_claude
 from harness.lib.utils import (
@@ -35,8 +35,12 @@ EXIT_FAIL = 1
 EXIT_BLOCKED = 2
 
 
-def _build_prompt(sprint_num: int, attempt: int, eval_report_present: bool,
-                  design_spec_present: bool) -> str:
+def _build_prompt(
+    sprint_num: int,
+    attempt: int,
+    eval_report_present: bool,
+    design_spec_present: bool,
+) -> str:
     pad = sprint_pad(sprint_num)
     prompt = (
         f"Implement sprint {sprint_num}. Read the contract at "
@@ -65,37 +69,21 @@ def _build_prompt(sprint_num: int, attempt: int, eval_report_present: bool,
     return prompt
 
 
-def invoke_generator(sprint_num: Any, attempt: int = 1) -> int:
-    """Invoke the generator agent for the given sprint.
+def invoke_generator(sprint_num: int, attempt: int = 1) -> int:
+    """Invoke the generator agent for the given sprint."""
+    pad = sprint_pad(sprint_num)
+    dir_path = Path(sprint_dir(sprint_num))
 
-    Returns
-    -------
-    0  -- generator completed and status.json says ready-for-eval (or other
-          non-blocked value).
-    1  -- claude invocation failed or status.json missing.
-    2  -- generator reported status='blocked'.
-    """
-    sprint_num_int = int(sprint_num)
-    attempt = int(attempt)
-    pad = sprint_pad(sprint_num_int)
-    dir_path = Path(sprint_dir(sprint_num_int))
-
-    log_info(
-        f"Generator implementing sprint {pad} (attempt {attempt})..."
-    )
-
-    eval_report_path = dir_path / "eval-report.json"
-    design_spec_path = Path(HARNESS_STATE) / "design-spec.md"
+    log_info(f"Generator implementing sprint {pad} (attempt {attempt})...")
 
     prompt = _build_prompt(
-        sprint_num=sprint_num_int,
+        sprint_num=sprint_num,
         attempt=attempt,
-        eval_report_present=file_exists(str(eval_report_path)),
-        design_spec_present=file_exists(str(design_spec_path)),
+        eval_report_present=file_exists(str(dir_path / "eval-report.json")),
+        design_spec_present=file_exists(str(Path(HARNESS_STATE) / "design-spec.md")),
     )
 
-    rc = invoke_claude("generator", prompt, max_turns=200)
-    if rc != 0:
+    if invoke_claude("generator", prompt, max_turns=200) != 0:
         log_error("Generator invocation failed")
         return EXIT_FAIL
 
@@ -107,17 +95,11 @@ def invoke_generator(sprint_num: Any, attempt: int = 1) -> int:
     status = json_read(str(status_path), ".status")
 
     if status == "blocked":
-        log_error(
-            f"Generator is blocked. See {dir_path.as_posix()}/generator-log.md"
-        )
+        log_error(f"Generator is blocked. See {dir_path.as_posix()}/generator-log.md")
         return EXIT_BLOCKED
 
     if status != "ready-for-eval":
-        log_warn(
-            f"Generator status is '{status}', expected 'ready-for-eval'"
-        )
+        log_warn(f"Generator status is '{status}', expected 'ready-for-eval'")
 
-    log_success(
-        f"Generator completed sprint {pad} (attempt {attempt})"
-    )
+    log_success(f"Generator completed sprint {pad} (attempt {attempt})")
     return EXIT_OK

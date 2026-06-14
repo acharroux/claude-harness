@@ -23,14 +23,13 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 
 # ---------------------------------------------------------------------------
 # HARNESS_ROOT bootstrap
 # ---------------------------------------------------------------------------
 
-# harness/orchestrate.py -> HARNESS_ROOT is the parent of "harness/" dir
 SCRIPT_DIR = Path(__file__).resolve().parent
 HARNESS_ROOT = SCRIPT_DIR.parent
 
@@ -61,7 +60,7 @@ DEFAULT_FROM_SPRINT = 1
 # ---------------------------------------------------------------------------
 
 def _copy_no_clobber(src_dir: Path, dst_dir: Path) -> None:
-    """Recursively copy src_dir into dst_dir, never overwriting existing files."""
+    """Recursively copy src_dir into dst_dir without overwriting existing files."""
     if not src_dir.is_dir():
         return
     dst_dir.mkdir(parents=True, exist_ok=True)
@@ -69,9 +68,8 @@ def _copy_no_clobber(src_dir: Path, dst_dir: Path) -> None:
         target = dst_dir / entry.name
         if entry.is_dir():
             _copy_no_clobber(entry, target)
-        else:
-            if not target.exists():
-                shutil.copyfile(str(entry), str(target))
+        elif not target.exists():
+            shutil.copyfile(str(entry), str(target))
 
 
 def stage_claude_assets(cwd: Optional[Path] = None) -> None:
@@ -88,30 +86,25 @@ def stage_claude_assets(cwd: Optional[Path] = None) -> None:
     dst_root = cwd / ".claude"
     dst_root.mkdir(parents=True, exist_ok=True)
 
-    src_agents = src_root / "agents"
-    src_skills = src_root / "skills"
-    if src_agents.is_dir():
-        _copy_no_clobber(src_agents, dst_root / "agents")
-    if src_skills.is_dir():
-        _copy_no_clobber(src_skills, dst_root / "skills")
+    for subdir in ("agents", "skills"):
+        src = src_root / subdir
+        if src.is_dir():
+            _copy_no_clobber(src, dst_root / subdir)
 
     gitignore = cwd / ".gitignore"
-    existing = ""
-    if gitignore.is_file():
-        try:
-            existing = gitignore.read_text(encoding="utf-8")
-        except OSError:
-            existing = ""
+    try:
+        existing = gitignore.read_text(encoding="utf-8") if gitignore.is_file() else ""
+    except OSError:
+        existing = ""
 
     if ".claude/agents/" not in existing:
-        block = (
-            "\n# Harness infrastructure (not project code)\n"
-            ".claude/agents/\n"
-            ".claude/skills/\n"
-        )
         try:
             with gitignore.open("a", encoding="utf-8") as fh:
-                fh.write(block)
+                fh.write(
+                    "\n# Harness infrastructure (not project code)\n"
+                    ".claude/agents/\n"
+                    ".claude/skills/\n"
+                )
         except OSError:
             pass
 
@@ -129,37 +122,26 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-
-    parser.add_argument(
-        "user_prompt",
-        nargs="?",
-        default=None,
-        help="Project description (used in mode=new).",
-    )
-
-    parser.add_argument("--extend", dest="extend", default=None,
-                        metavar="PROMPT",
+    parser.add_argument("user_prompt", nargs="?", default=None,
+                        help="Project description (used in mode=new).")
+    parser.add_argument("--extend", default=None, metavar="PROMPT",
                         help="Extend existing project with new features.")
-    parser.add_argument("--fix", dest="fix", default=None,
-                        metavar="DESCRIPTION",
+    parser.add_argument("--fix", default=None, metavar="DESCRIPTION",
                         help="Fix a specific bug in an existing project.")
-    parser.add_argument("--refactor", dest="refactor", default=None,
-                        metavar="DESC",
+    parser.add_argument("--refactor", default=None, metavar="DESC",
                         help="Refactor without behavior change.")
     parser.add_argument("--regression", action="store_true",
                         help="Run regression tests across all prior sprints.")
     parser.add_argument("--resume", action="store_true",
                         help="Resume an in-progress harness session.")
-
     parser.add_argument("--project-type", dest="project_type",
                         default=DEFAULT_PROJECT_TYPE,
-                        help="web-frontend|backend-api|cli-tool|general "
+                        help=f"web-frontend|backend-api|cli-tool|general "
                              f"(default: {DEFAULT_PROJECT_TYPE}).")
     parser.add_argument("--context-strategy", dest="context_strategy",
                         default=DEFAULT_CONTEXT_STRATEGY,
                         help=f"reset|compact (default: {DEFAULT_CONTEXT_STRATEGY}).")
-    parser.add_argument("--model", dest="model",
-                        default=DEFAULT_MODEL,
+    parser.add_argument("--model", default=DEFAULT_MODEL,
                         help=f"opus|sonnet (default: {DEFAULT_MODEL}).")
     parser.add_argument("--max-cost", dest="max_cost",
                         type=float, default=DEFAULT_TOTAL_COST_CAP,
@@ -168,14 +150,12 @@ def build_parser() -> argparse.ArgumentParser:
                         type=int, default=DEFAULT_FROM_SPRINT,
                         help="Start/resume from sprint N (default: 1).")
     parser.add_argument("--dry-run", dest="dry_run", action="store_true",
-                        help="Show resolved configuration and exit without "
-                             "invoking claude or modifying state.")
-
+                        help="Show resolved configuration and exit.")
     return parser
 
 
-def resolve_mode(args: argparse.Namespace) -> tuple:
-    """Resolve (mode, prompt) tuple from parsed args.
+def resolve_mode(args: argparse.Namespace) -> tuple[str, str]:
+    """Resolve (mode, prompt) from parsed args.
 
     Mirrors orchestrate.sh's last-flag-wins precedence:
       regression > resume > refactor > fix > extend > new
@@ -194,37 +174,93 @@ def resolve_mode(args: argparse.Namespace) -> tuple:
 
 
 # ---------------------------------------------------------------------------
-# Sprint loop
+# Git helpers
 # ---------------------------------------------------------------------------
 
 def _git_checkout(branch: str) -> None:
-    """Checkout a branch, logging stderr on failure (never raises)."""
-    from harness.lib import git as _git_mod
+    """Checkout a branch via git_mod._run(), logging stderr on failure."""
+    from harness.lib import git as git_mod
+    from harness.lib import utils
     try:
-        _git_mod._run(["git", "checkout", branch], check=True, capture=True)
+        git_mod._run(["git", "checkout", branch], check=True, capture=True)
     except Exception as exc:
-        from harness.lib import utils as _utils
-        _utils.log_warn(f"git checkout {branch} failed: {exc}")
+        utils.log_warn(f"git checkout {branch} failed: {exc}")
 
 
 def _git_checkout_new(branch: str, base: str) -> None:
     """Create and checkout a new branch from base, logging stderr on failure."""
-    from harness.lib import git as _git_mod
+    from harness.lib import git as git_mod
+    from harness.lib import utils
     try:
-        _git_mod._run(["git", "checkout", "-b", branch, base],
-                      check=True, capture=True)
+        git_mod._run(["git", "checkout", "-b", branch, base], check=True, capture=True)
     except Exception as exc:
-        from harness.lib import utils as _utils
-        _utils.log_warn(f"git checkout -b {branch} {base} failed: {exc}")
+        utils.log_warn(f"git checkout -b {branch} {base} failed: {exc}")
+
+
+def _is_git_repo() -> bool:
+    cp = subprocess.run(
+        ["git", "rev-parse", "--git-dir"],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    return cp.returncode == 0
+
+
+def _git_auto_init(project_slug: str) -> None:
+    """Initialize a git repo with main branch and an initial commit."""
+    email = os.environ.get("GIT_EMAIL", "harness@claude-harness.dev")
+    name = os.environ.get("GIT_NAME", "Claude Harness")
+    for cmd in [
+        ["git", "init", "-q", "-b", "main"],
+        ["git", "config", "user.email", email],
+        ["git", "config", "user.name", name],
+    ]:
+        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    Path("README.md").write_text(f"# {project_slug}\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"],
+                   check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    subprocess.run(["git", "commit", "-q", "-m", "initial commit"],
+                   check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+
+# ---------------------------------------------------------------------------
+# Sprint loop
+# ---------------------------------------------------------------------------
+
+def _sprint_name(sprint_num: int) -> str:
+    """Read sprint name from sprint-plan.json, falling back to 'Sprint N'."""
+    from harness.lib import utils
+    plan_path = Path(utils.HARNESS_STATE) / "sprint-plan.json"
+    if plan_path.is_file():
+        try:
+            plan = json.loads(plan_path.read_text(encoding="utf-8"))
+            sprints_list = plan.get("sprints") if isinstance(plan, dict) else None
+            idx = sprint_num - 1
+            if isinstance(sprints_list, list) and 0 <= idx < len(sprints_list):
+                entry = sprints_list[idx]
+                if isinstance(entry, dict):
+                    return entry.get("name") or entry.get("title") or f"Sprint {sprint_num}"
+        except (ValueError, OSError, TypeError):
+            pass
+    return f"Sprint {sprint_num}"
+
+
+def _total_sprints() -> int:
+    """Read total sprint count from sprint-plan.json."""
+    from harness.lib import utils
+    plan_path = Path(utils.HARNESS_STATE) / "sprint-plan.json"
+    try:
+        data = json.loads(plan_path.read_text(encoding="utf-8"))
+        sprints = data.get("sprints") if isinstance(data, dict) else None
+        return len(sprints) if isinstance(sprints, list) else 0
+    except (OSError, ValueError):
+        return 0
+
 
 def _run_sprint(sprint_num: int, harness_branch: str) -> int:
     """Run a single sprint: contract -> generator -> evaluator with retries.
 
-    Returns
-    -------
-    0 on PASS, 1 if all attempts failed, 2 if generator reported 'blocked'.
+    Returns 0 on PASS, 1 if all attempts failed, 2 if generator blocked.
     """
-    # Imports kept inside to avoid heavy imports during --help parsing
     from harness.lib import contract as contract_mod
     from harness.lib import evaluator as evaluator_mod
     from harness.lib import generator as generator_mod
@@ -234,28 +270,9 @@ def _run_sprint(sprint_num: int, harness_branch: str) -> int:
     pad = utils.sprint_pad(sprint_num)
     dir_path = Path(utils.sprint_dir(sprint_num))
 
-    # Read sprint name from plan
-    plan_path = Path(utils.HARNESS_STATE) / "sprint-plan.json"
-    sprint_name = f"Sprint {sprint_num}"
-    if plan_path.is_file():
-        try:
-            plan = json.loads(plan_path.read_text(encoding="utf-8"))
-            sprints_list = plan.get("sprints") if isinstance(plan, dict) else None
-            idx = int(sprint_num) - 1
-            if isinstance(sprints_list, list) and 0 <= idx < len(sprints_list):
-                entry = sprints_list[idx]
-                if isinstance(entry, dict):
-                    sprint_name = (
-                        entry.get("name") or entry.get("title") or sprint_name
-                    )
-        except (ValueError, OSError, TypeError):
-            pass
-
-    utils.log_phase(f"SPRINT {pad}: {sprint_name}")
-
+    utils.log_phase(f"SPRINT {pad}: {_sprint_name(sprint_num)}")
     dir_path.mkdir(parents=True, exist_ok=True)
 
-    # Contract negotiation (if no contract exists)
     contract_path = dir_path / "contract.json"
     if not utils.file_exists(str(contract_path)):
         contract_mod.negotiate_contract(sprint_num)
@@ -263,14 +280,11 @@ def _run_sprint(sprint_num: int, harness_branch: str) -> int:
     else:
         utils.log_info("Contract already exists, skipping negotiation")
 
-    # Implementation + evaluation loop
-    max_attempts = MAX_SPRINT_ATTEMPTS
-    for attempt in range(1, max_attempts + 1):
-        utils.log_info(f"Attempt {attempt}/{max_attempts}")
+    for attempt in range(1, MAX_SPRINT_ATTEMPTS + 1):
+        utils.log_info(f"Attempt {attempt}/{MAX_SPRINT_ATTEMPTS}")
 
         git_mod.create_sprint_branch(harness_branch, sprint_num)
 
-        # Generator implements
         rc = generator_mod.invoke_generator(sprint_num, attempt)
         if rc == generator_mod.EXIT_BLOCKED:
             utils.log_error("Generator is blocked. Aborting sprint.")
@@ -280,29 +294,22 @@ def _run_sprint(sprint_num: int, harness_branch: str) -> int:
             git_mod.fail_sprint_attempt(harness_branch, sprint_num, attempt)
             continue
 
-        # Evaluator tests
         if evaluator_mod.invoke_evaluator(sprint_num, attempt):
-            # PASS: merge, tag, handoff
             merge_sha = git_mod.merge_sprint(harness_branch, sprint_num, attempt)
             tag = f"harness/sprint-{pad}/pass"
-
             utils.update_handoff(sprint_num, merge_sha, tag, harness_branch)
             utils.update_progress(sprint_num, "PASS", attempt, merge_sha)
             utils.update_regression_registry(sprint_num)
             git_mod.commit_harness_state(f"harness(eval): sprint-{pad} PASS")
-
-            utils.log_success(
-                f"Sprint {pad} PASSED on attempt {attempt}"
-            )
+            utils.log_success(f"Sprint {pad} PASSED on attempt {attempt}")
             return 0
-        else:
-            # FAIL: tag, delete branch, retry
-            git_mod.fail_sprint_attempt(harness_branch, sprint_num, attempt)
-            utils.update_progress(sprint_num, "FAIL", attempt)
-            utils.log_warn(f"Sprint {pad} failed on attempt {attempt}")
 
-    utils.log_error(f"Sprint {pad} failed all {max_attempts} attempts")
-    utils.update_progress(sprint_num, "FAILED (all attempts exhausted)", max_attempts)
+        git_mod.fail_sprint_attempt(harness_branch, sprint_num, attempt)
+        utils.update_progress(sprint_num, "FAIL", attempt)
+        utils.log_warn(f"Sprint {pad} failed on attempt {attempt}")
+
+    utils.log_error(f"Sprint {pad} failed all {MAX_SPRINT_ATTEMPTS} attempts")
+    utils.update_progress(sprint_num, "FAILED (all attempts exhausted)", MAX_SPRINT_ATTEMPTS)
     git_mod.commit_harness_state(f"harness(eval): sprint-{pad} FAILED")
     return 1
 
@@ -311,9 +318,14 @@ def _run_sprint(sprint_num: int, harness_branch: str) -> int:
 # Mode: new
 # ---------------------------------------------------------------------------
 
-def run_new_build(prompt: str, project_type: str, context_strategy: str,
-                  model: str, total_cost_cap: float, from_sprint: int) -> int:
-    """Entry point for mode=new. Mirrors run_new_build() in orchestrate.sh."""
+def run_new_build(
+    prompt: str,
+    project_type: str,
+    context_strategy: str,
+    model: str,
+    total_cost_cap: float,
+    from_sprint: int,
+) -> int:
     from harness.lib import git as git_mod
     from harness.lib import invoke as invoke_mod
     from harness.lib import planner as planner_mod
@@ -328,65 +340,55 @@ def run_new_build(prompt: str, project_type: str, context_strategy: str,
     utils.log_info(f"Model: {model}")
     utils.log_info(f"Context strategy: {context_strategy}")
 
-    # Auto-init git repo if not present
     if not _is_git_repo():
         utils.log_info("No git repo found. Initializing...")
         _git_auto_init(project_slug)
 
-    # Push config into env so init_harness_state picks it up
     os.environ["CONTEXT_STRATEGY"] = context_strategy
     os.environ["MODEL"] = model
     os.environ["TOTAL_COST_CAP"] = str(total_cost_cap)
 
     utils.init_harness_state(prompt, project_type)
-
     harness_branch = git_mod.create_harness_branch(project_slug)
 
-    # Initialize handoff.json with harness branch
     state_dir = Path(utils.HARNESS_STATE)
     state_dir.mkdir(parents=True, exist_ok=True)
-    handoff = {
-        "projectName": "",
-        "completedSprints": [],
-        "currentSprint": 1,
-        "totalSprints": 0,
-        "completedFeatures": [],
-        "keyFiles": {},
-        "techStack": {},
-        "outstandingIssues": [],
-        "devServerCommand": "",
-        "devServerPort": 0,
-        "git": {
-            "harnessBranch": harness_branch,
-            "latestTag": "",
-            "latestMergeSha": "",
-            "prNumbers": [],
-        },
-    }
     (state_dir / "handoff.json").write_text(
-        json.dumps(handoff, indent=2) + "\n", encoding="utf-8"
+        json.dumps({
+            "projectName": "",
+            "completedSprints": [],
+            "currentSprint": 1,
+            "totalSprints": 0,
+            "completedFeatures": [],
+            "keyFiles": {},
+            "techStack": {},
+            "outstandingIssues": [],
+            "devServerCommand": "",
+            "devServerPort": 0,
+            "git": {
+                "harnessBranch": harness_branch,
+                "latestTag": "",
+                "latestMergeSha": "",
+                "prNumbers": [],
+            },
+        }, indent=2) + "\n",
+        encoding="utf-8",
     )
 
     git_mod.commit_harness_state(f"harness: initialize state for {project_slug}")
 
-    # Plan
     sprint_count = planner_mod.invoke_planner("new")
     git_mod.commit_harness_state("harness(plan): product spec and sprint plan")
     git_mod._run(["git", "tag", "harness/plan"], check=False, capture=True)
-
     utils.log_info(f"Sprint plan: {sprint_count} sprints")
 
     failed_sprints = 0
     for sprint_num in range(from_sprint, sprint_count + 1):
-        rc = _run_sprint(sprint_num, harness_branch)
-        if rc != 0:
+        if _run_sprint(sprint_num, harness_branch) != 0:
             failed_sprints += 1
-            utils.log_warn(
-                f"Sprint {sprint_num} failed. Continuing to next sprint."
-            )
+            utils.log_warn(f"Sprint {sprint_num} failed. Continuing to next sprint.")
         utils.check_cost_cap()
 
-    # Generate README on full success
     if failed_sprints == 0:
         utils.log_info("Generating README...")
         try:
@@ -405,14 +407,11 @@ def run_new_build(prompt: str, project_type: str, context_strategy: str,
             )
         except FileNotFoundError:
             utils.log_warn("claude CLI not found -- skipping README generation")
-
         git_mod._run(["git", "add", "README.md"], check=False, capture=True)
         git_mod.commit_harness_state("harness: generate README.md")
 
     utils.log_phase("HARNESS COMPLETE")
-
-    pr_body = git_mod.generate_pr_body()
-    git_mod.create_pr(harness_branch, project_slug, pr_body)
+    git_mod.create_pr(harness_branch, project_slug, git_mod.generate_pr_body())
 
     if failed_sprints > 0:
         utils.log_warn(
@@ -420,7 +419,6 @@ def run_new_build(prompt: str, project_type: str, context_strategy: str,
             f"Review harness-state/progress.md for details."
         )
         return 1
-
     utils.log_success("All sprints passed!")
     return 0
 
@@ -437,17 +435,18 @@ def run_extend(prompt: str) -> int:
     utils.log_phase("HARNESS: EXTEND")
     utils.log_info(f"New features: {prompt}")
 
-    config_path = Path(utils.HARNESS_STATE) / "config.json"
-    if not utils.file_exists(str(config_path)):
+    if not utils.file_exists(str(Path(utils.HARNESS_STATE) / "config.json")):
         utils.log_error("No existing harness state found. Run a new build first.")
         return 1
 
     handoff_path = Path(utils.HARNESS_STATE) / "handoff.json"
     harness_branch = utils.json_read(str(handoff_path), ".git.harnessBranch")
-    if harness_branch:
-        _git_checkout(harness_branch)
+    if not harness_branch:
+        utils.log_error("No harness branch found in handoff.json.")
+        return 1
+    _git_checkout(harness_branch)
 
-    # Update config with new prompt
+    config_path = Path(utils.HARNESS_STATE) / "config.json"
     try:
         cfg = json.loads(config_path.read_text(encoding="utf-8"))
         cfg["userPrompt"] = prompt
@@ -455,25 +454,17 @@ def run_extend(prompt: str) -> int:
     except (OSError, ValueError):
         pass
 
-    # Count completed sprints (those with a passing eval report)
-    completed_sprints = 0
-    sprints_root = Path(utils.HARNESS_STATE) / "sprints"
-    if sprints_root.is_dir():
-        for d in sorted(sprints_root.glob("sprint-*")):
-            if not d.is_dir():
-                continue
-            result = utils.json_read(str(d / "eval-report.json"), ".overallResult")
-            if result == "PASS":
-                completed_sprints += 1
+    completed_sprints = sum(
+        1 for d in sorted((Path(utils.HARNESS_STATE) / "sprints").glob("sprint-*"))
+        if d.is_dir() and utils.json_read(str(d / "eval-report.json"), ".overallResult") == "PASS"
+    )
 
     total_sprints = planner_mod.invoke_planner("extend")
     git_mod.commit_harness_state("harness(plan): extend with new features")
 
     new_start = completed_sprints + 1
-    sprint_count = total_sprints - completed_sprints
-    utils.log_info(
-        f"Added {sprint_count} new sprints ({new_start}-{total_sprints})"
-    )
+    utils.log_info(f"Added {total_sprints - completed_sprints} new sprints "
+                   f"({new_start}-{total_sprints})")
 
     for sprint_num in range(new_start, total_sprints + 1):
         try:
@@ -483,9 +474,8 @@ def run_extend(prompt: str) -> int:
         utils.check_cost_cap()
 
     utils.log_phase("EXTEND COMPLETE")
-    pr_body = git_mod.generate_pr_body()
-    slug = utils.slugify(prompt)
-    git_mod.create_pr(harness_branch, f"extend-{slug}", pr_body)
+    git_mod.create_pr(harness_branch, f"extend-{utils.slugify(prompt)}",
+                      git_mod.generate_pr_body())
     return 0
 
 
@@ -502,32 +492,29 @@ def run_fix(prompt: str) -> int:
     utils.log_phase("HARNESS: FIX")
     utils.log_info(f"Bug: {prompt}")
 
-    config_path = Path(utils.HARNESS_STATE) / "config.json"
-    if not utils.file_exists(str(config_path)):
+    if not utils.file_exists(str(Path(utils.HARNESS_STATE) / "config.json")):
         utils.log_error("No existing harness state found.")
         return 1
 
     handoff_path = Path(utils.HARNESS_STATE) / "handoff.json"
     harness_branch = utils.json_read(str(handoff_path), ".git.harnessBranch")
-    if harness_branch:
-        _git_checkout(harness_branch)
+    if not harness_branch:
+        utils.log_error("No harness branch found in handoff.json.")
+        return 1
+    _git_checkout(harness_branch)
 
     issue_number = git_mod.create_issue(
         f"Bug: {prompt}",
-        f"## Reported behavior\n{prompt}\n\n## Harness tracking\n"
-        f"Automated fix via harness.",
+        f"## Reported behavior\n{prompt}\n\n## Harness tracking\nAutomated fix via harness.",
     )
 
-    # Determine fix sprint number
     sprints_root = Path(utils.HARNESS_STATE) / "sprints"
     sprints_root.mkdir(parents=True, exist_ok=True)
     fix_count = sum(1 for p in sprints_root.iterdir()
                     if p.is_dir() and p.name.startswith("fix-"))
     fix_id = f"fix-{fix_count + 1:03d}"
-    fix_dir = sprints_root / fix_id
-    fix_dir.mkdir(parents=True, exist_ok=True)
+    (sprints_root / fix_id).mkdir(parents=True, exist_ok=True)
 
-    # Generate fix contract
     utils.log_info("Generating fix contract...")
     try:
         invoke_mod.invoke_claude(
@@ -552,8 +539,7 @@ def run_fix(prompt: str) -> int:
         (
             f"Fix this bug: {prompt}. Read the contract at "
             f"harness-state/sprints/{fix_id}/contract.json. Write your log to "
-            f"harness-state/sprints/{fix_id}/generator-log.md. Set status to "
-            f"ready-for-eval."
+            f"harness-state/sprints/{fix_id}/generator-log.md. Set status to ready-for-eval."
         ),
         max_turns=100,
     )
@@ -566,13 +552,13 @@ def run_fix(prompt: str) -> int:
         )
         utils.update_regression_registry(fix_id)
         git_mod.commit_harness_state(f"harness({fix_id}): fix verified")
-        git_mod.create_fix_pr(sprint_branch, harness_branch, fix_id, prompt,
-                              issue_number)
+        git_mod.create_fix_pr(sprint_branch, harness_branch, fix_id, prompt, issue_number)
         utils.log_success("Fix verified -- PR created")
         return 0
 
     utils.log_error(
-        f"Fix did not pass evaluation. See {fix_dir.as_posix()}/eval-report.json"
+        f"Fix did not pass evaluation. See "
+        f"{(sprints_root / fix_id).as_posix()}/eval-report.json"
     )
     return 1
 
@@ -592,17 +578,20 @@ def run_refactor(prompt: str) -> int:
 
     handoff_path = Path(utils.HARNESS_STATE) / "handoff.json"
     harness_branch = utils.json_read(str(handoff_path), ".git.harnessBranch")
-    if harness_branch:
-        _git_checkout(harness_branch)
+    if not harness_branch:
+        utils.log_error("No harness branch found in handoff.json.")
+        return 1
+    _git_checkout(harness_branch)
 
     utils.log_info("Running pre-refactor regression baseline...")
     try:
         evaluator_mod.invoke_regression()
-    except Exception:
-        utils.log_warn("Pre-refactor regression had failures")
+    except Exception as exc:
+        utils.log_warn(f"Pre-refactor regression had failures: {exc}")
 
-    ref_dir = Path(utils.HARNESS_STATE) / "sprints" / "refactor-001"
-    ref_dir.mkdir(parents=True, exist_ok=True)
+    (Path(utils.HARNESS_STATE) / "sprints" / "refactor-001").mkdir(
+        parents=True, exist_ok=True
+    )
 
     try:
         invoke_mod.invoke_claude(
@@ -626,8 +615,7 @@ def run_refactor(prompt: str) -> int:
         (
             f"Implement this refactor: {prompt}. Read the contract at "
             f"harness-state/sprints/refactor-001/contract.json. Behavior MUST "
-            f"NOT change. Write log to "
-            f"harness-state/sprints/refactor-001/generator-log.md."
+            f"NOT change. Write log to harness-state/sprints/refactor-001/generator-log.md."
         ),
         max_turns=200,
     )
@@ -639,9 +627,7 @@ def run_refactor(prompt: str) -> int:
             "harness(refactor): merge (PASS, full regression)",
             "harness/refactor-001/pass",
         )
-        git_mod.commit_harness_state(
-            "harness(refactor): verified with full regression"
-        )
+        git_mod.commit_harness_state("harness(refactor): verified with full regression")
         utils.log_success("Refactor complete with full regression pass")
         return 0
 
@@ -665,25 +651,12 @@ def run_resume(from_sprint: int) -> int:
         return 1
 
     harness_branch = utils.json_read(str(handoff_path), ".git.harnessBranch")
-    if harness_branch:
-        _git_checkout(harness_branch)
+    if not harness_branch:
+        utils.log_error("No harness branch found in handoff.json.")
+        return 1
+    _git_checkout(harness_branch)
 
-    plan_path = Path(utils.HARNESS_STATE) / "sprint-plan.json"
-    total_str = utils.json_read(str(plan_path), ".sprints | length")
-    total_sprints = 0
-    if total_str:
-        try:
-            total_sprints = int(total_str)
-        except ValueError:
-            total_sprints = 0
-    if total_sprints == 0 and plan_path.is_file():
-        try:
-            data = json.loads(plan_path.read_text(encoding="utf-8"))
-            sprints = data.get("sprints") if isinstance(data, dict) else None
-            total_sprints = len(sprints) if isinstance(sprints, list) else 0
-        except (OSError, ValueError):
-            total_sprints = 0
-
+    total_sprints = _total_sprints()
     for sprint_num in range(from_sprint, total_sprints + 1):
         try:
             _run_sprint(sprint_num, harness_branch)
@@ -692,52 +665,27 @@ def run_resume(from_sprint: int) -> int:
         utils.check_cost_cap()
 
     utils.log_phase("RESUME COMPLETE")
-
-    pr_body = git_mod.generate_pr_body()
-    config_path = Path(utils.HARNESS_STATE) / "config.json"
-    user_prompt = utils.json_read(str(config_path), ".userPrompt")
-    git_mod.create_pr(harness_branch, utils.slugify(user_prompt), pr_body)
-    return 0
-
-
-# ---------------------------------------------------------------------------
-# git auto-init helpers
-# ---------------------------------------------------------------------------
-
-def _is_git_repo() -> bool:
-    cp = subprocess.run(
-        ["git", "rev-parse", "--git-dir"],
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    user_prompt = utils.json_read(
+        str(Path(utils.HARNESS_STATE) / "config.json"), ".userPrompt"
     )
-    return cp.returncode == 0
-
-
-def _git_auto_init(project_slug: str) -> None:
-    """Initialize a git repo with main branch and an initial commit."""
-    subprocess.run(["git", "init", "-q", "-b", "main"],
-                   check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    email = os.environ.get("GIT_EMAIL", "harness@claude-harness.dev")
-    name = os.environ.get("GIT_NAME", "Claude Harness")
-    subprocess.run(["git", "config", "user.email", email],
-                   check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    subprocess.run(["git", "config", "user.name", name],
-                   check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    Path("README.md").write_text(f"# {project_slug}\n", encoding="utf-8")
-    subprocess.run(["git", "add", "README.md"],
-                   check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    subprocess.run(["git", "commit", "-q", "-m", "initial commit"],
-                   check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    git_mod.create_pr(harness_branch, utils.slugify(user_prompt),
+                      git_mod.generate_pr_body())
+    return 0
 
 
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
-def _print_dry_run(mode: str, prompt: str, project_type: str,
-                   context_strategy: str, model: str,
-                   total_cost_cap: float) -> None:
-    """Mirror bash dry-run output but emit to stdout (so tests can capture)."""
-    sys.stdout.write("[harness] DRY RUN -- would execute mode: " + mode + "\n")
+def _print_dry_run(
+    mode: str,
+    prompt: str,
+    project_type: str,
+    context_strategy: str,
+    model: str,
+    total_cost_cap: float,
+) -> None:
+    sys.stdout.write(f"[harness] DRY RUN -- would execute mode: {mode}\n")
     sys.stdout.write(f"[harness] Prompt: {prompt}\n")
     sys.stdout.write(
         f"[harness] Config: type={project_type} strategy={context_strategy} "
@@ -745,34 +693,27 @@ def _print_dry_run(mode: str, prompt: str, project_type: str,
     )
     try:
         sys.stdout.flush()
-    except Exception:
+    except OSError:
         pass
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: Optional[list[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-
     mode, prompt = resolve_mode(args)
 
-    # Validate mode=new requires prompt
     if mode == "new" and not prompt:
         parser.error(
             "a project description is required for mode=new "
             "(positional prompt or one of --extend/--fix/--refactor/--resume/--regression)"
         )
 
-    # DRY RUN: report and exit before any side effects
     if args.dry_run:
-        _print_dry_run(
-            mode, prompt, args.project_type, args.context_strategy,
-            args.model, args.max_cost,
-        )
+        _print_dry_run(mode, prompt, args.project_type, args.context_strategy,
+                       args.model, args.max_cost)
         return 0
 
-    # Stage .claude/ assets into cwd (no-clobber). Only for non-dry-run.
     stage_claude_assets()
-
     start_time = time.time()
 
     if mode == "new":
@@ -800,15 +741,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 1
 
     duration = int(time.time() - start_time)
-    hours = duration // 3600
-    minutes = (duration % 3600) // 60
-
     from harness.lib import utils
     utils.log_phase("DONE")
-    utils.log_info(f"Total time: {hours}h {minutes}m")
+    utils.log_info(f"Total time: {duration // 3600}h {(duration % 3600) // 60}m")
     utils.log_info(f"Cost log: {utils.HARNESS_STATE}/cost-log.json")
     utils.log_info(f"Progress: {utils.HARNESS_STATE}/progress.md")
-
     return rc
 
 

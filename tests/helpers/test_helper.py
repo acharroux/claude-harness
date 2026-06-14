@@ -77,18 +77,19 @@ class HarnessTestCase(unittest.TestCase):
         dest_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(str(src), str(dest_path))
 
+    def _git(self, args: list) -> None:
+        """Run a git command in the test temp dir, raising on failure."""
+        subprocess.run(
+            args,
+            cwd=self.test_temp_dir,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
     def init_test_repo(self) -> None:
         """Initialize a git repo in the temp dir with an initial commit."""
-        def _run(args):
-            return subprocess.run(
-                args,
-                cwd=self.test_temp_dir,
-                check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-
-        # Try `git init -b main` first; fall back for older git
+        # `git init -b main` requires git ≥2.28; fall back to rename for older versions
         result = subprocess.run(
             ["git", "init", "-b", "main"],
             cwd=self.test_temp_dir,
@@ -96,20 +97,18 @@ class HarnessTestCase(unittest.TestCase):
             stderr=subprocess.PIPE,
         )
         if result.returncode != 0:
-            _run(["git", "init"])
+            self._git(["git", "init"])
             try:
-                _run(["git", "checkout", "-b", "main"])
+                self._git(["git", "checkout", "-b", "main"])
             except subprocess.CalledProcessError:
                 pass
 
-        _run(["git", "config", "user.email", "test@test.com"])
-        _run(["git", "config", "user.name", "Test"])
+        self._git(["git", "config", "user.email", "test@test.com"])
+        self._git(["git", "config", "user.name", "Test"])
 
-        readme = Path(self.test_temp_dir) / "README.md"
-        readme.write_text("initial\n", encoding="utf-8")
-
+        (Path(self.test_temp_dir) / "README.md").write_text("initial\n", encoding="utf-8")
         os.makedirs(os.path.join(self.test_temp_dir, self.harness_state, "sprints"), exist_ok=True)
         os.makedirs(os.path.join(self.test_temp_dir, self.harness_state, "regression"), exist_ok=True)
 
-        _run(["git", "add", "README.md", self.harness_state])
-        _run(["git", "commit", "-q", "-m", "initial commit"])
+        self._git(["git", "add", "README.md", self.harness_state])
+        self._git(["git", "commit", "-q", "-m", "initial commit"])

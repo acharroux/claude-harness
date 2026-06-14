@@ -6,7 +6,7 @@ proposal is copied to contract.json. On exhaustion the latest proposal is also
 copied (matching the bash final fallback).
 
 Public API:
-    negotiate_contract(sprint_num) -> bool
+    negotiate_contract(sprint_num: int) -> bool
 
 Tolerances mirror contract.sh exactly:
   - decision field can be .decision, .reviewVerdict, or .verdict
@@ -36,24 +36,22 @@ from harness.lib.utils import (
 )
 
 
-_ACCEPT_VALUES = ("accepted", "accept", "approved", "approve")
+# frozenset gives O(1) membership test
+_ACCEPT_VALUES: frozenset[str] = frozenset(("accepted", "accept", "approved", "approve"))
 
 
 def _read_json(path: Path) -> Any:
     """Read JSON from path; return None on any error."""
     try:
-        if not path.is_file():
-            return None
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
     except (OSError, ValueError):
         return None
 
 
 def parse_decision(review_data: Any) -> str:
-    """Extract the decision string from a review object (lowercased).
+    """Extract the decision string (lowercased) from a review object.
 
-    Tolerates: .decision, .reviewVerdict, .verdict. Returns 'unknown' when
-    none are present (matches `// "unknown"` jq fallback).
+    Tolerates .decision, .reviewVerdict, .verdict. Returns 'unknown' when none present.
     """
     if not isinstance(review_data, dict):
         return "unknown"
@@ -99,24 +97,17 @@ def count_criteria(proposal_data: Any) -> int:
         return total
 
     flat = proposal_data.get("acceptanceCriteria")
-    if isinstance(flat, list):
-        return len(flat)
-
-    return 0
+    return len(flat) if isinstance(flat, list) else 0
 
 
-def negotiate_contract(sprint_num: Any) -> bool:
+def negotiate_contract(sprint_num: int) -> bool:
     """Run contract negotiation rounds for the given sprint number.
 
-    Returns True on success (contract.json written). Returns False only when an
-    underlying claude invocation failed and we could not progress.
-
-    Side effects: writes contract-proposal.json, contract-review.json, and
-    (on acceptance / max-rounds) contract.json under sprints/sprint-NN/.
+    Returns True on success (contract.json written). Returns False only when a
+    claude invocation fails and we could not progress.
     """
-    sprint_num_int = int(sprint_num)
-    pad = sprint_pad(sprint_num_int)
-    dir_path = Path(sprint_dir(sprint_num_int))
+    pad = sprint_pad(sprint_num)
+    dir_path = Path(sprint_dir(sprint_num))
     proposal_path = dir_path / "contract-proposal.json"
     review_path = dir_path / "contract-review.json"
     contract_path = dir_path / "contract.json"
@@ -127,7 +118,6 @@ def negotiate_contract(sprint_num: Any) -> bool:
         max_rounds = 3
 
     log_phase(f"CONTRACT NEGOTIATION — Sprint {pad}")
-
     dir_path.mkdir(parents=True, exist_ok=True)
 
     for round_idx in range(1, max_rounds + 1):
@@ -136,10 +126,11 @@ def negotiate_contract(sprint_num: Any) -> bool:
         # ---- Generator proposes ------------------------------------------------
         log_info("Generator proposing contract...")
         gen_prompt = (
-            f"Propose a sprint contract for sprint {sprint_num_int}. "
+            f"Propose a sprint contract for sprint {sprint_num}. "
             f"Read harness-state/product-spec.md and harness-state/sprint-plan.json "
             f"for context. Read harness-state/handoff.json for current state. "
-            f"Write your proposal to harness-state/sprints/sprint-{pad}/contract-proposal.json."
+            f"Write your proposal to "
+            f"harness-state/sprints/sprint-{pad}/contract-proposal.json."
         )
         if round_idx > 1:
             gen_prompt += (
@@ -148,11 +139,9 @@ def negotiate_contract(sprint_num: Any) -> bool:
                 f"Address all feedback in your revised proposal."
             )
 
-        rc = invoke_claude("generator", gen_prompt, max_turns=30)
-        if rc != 0:
+        if invoke_claude("generator", gen_prompt, max_turns=30) != 0:
             log_error("Generator contract proposal failed")
             return False
-
         if not file_exists(str(proposal_path)):
             log_error("Generator did not produce contract-proposal.json")
             return False
@@ -170,25 +159,19 @@ def negotiate_contract(sprint_num: Any) -> bool:
             f"features from the sprint plan. Write your review to "
             f"harness-state/sprints/sprint-{pad}/contract-review.json."
         )
-        rc = invoke_claude("evaluator", eval_prompt, max_turns=30)
-        if rc != 0:
+        if invoke_claude("evaluator", eval_prompt, max_turns=30) != 0:
             log_error("Evaluator contract review failed")
             return False
-
         if not file_exists(str(review_path)):
             log_error("Evaluator did not produce contract-review.json")
             return False
 
         review_data = _read_json(review_path)
-
         if is_accepted(review_data):
             shutil.copyfile(str(proposal_path), str(contract_path))
-            log_success(
-                f"Contract agreed (round {round_idx}, {criteria_count} criteria)"
-            )
+            log_success(f"Contract agreed (round {round_idx}, {criteria_count} criteria)")
             return True
 
-        # Log feedback summary for the next iteration
         feedback = "no feedback provided"
         if isinstance(review_data, dict):
             for key in ("feedback", "verdictReason", "reason", "comments"):
@@ -198,7 +181,7 @@ def negotiate_contract(sprint_num: Any) -> bool:
                     break
         log_warn(f"Evaluator requested revisions: {feedback[:200]}")
 
-    # Max rounds reached -- accept the latest proposal
+    # Max rounds reached — accept the latest proposal
     log_warn("Max negotiation rounds reached. Accepting latest proposal.")
     if file_exists(str(proposal_path)):
         shutil.copyfile(str(proposal_path), str(contract_path))

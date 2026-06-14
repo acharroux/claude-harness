@@ -20,7 +20,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import IO, List, Optional
+from typing import IO, Optional
 
 
 # ANSI dim grey, matching invoke.sh
@@ -34,9 +34,9 @@ def _build_argv(
     prompt: str,
     max_turns: int,
     mcp_config: Optional[str],
-) -> List[str]:
+) -> list[str]:
     """Construct the argv list passed to subprocess.Popen."""
-    argv: List[str] = [
+    argv: list[str] = [
         claude_path,
         "-p", prompt,
         "--agent", agent,
@@ -60,7 +60,7 @@ def _build_argv(
 
 
 def _preview_for_input(tool_input: object) -> str:
-    """Mirror the jq logic in invoke.sh for tool_use input previews."""
+    """Return a short display string for a tool_use input dict."""
     if isinstance(tool_input, dict):
         cmd = tool_input.get("command")
         if isinstance(cmd, str) and cmd:
@@ -89,23 +89,19 @@ def _emit_progress(line: str) -> None:
     if msg_type == "assistant":
         message = record.get("message")
         content = message.get("content") if isinstance(message, dict) else None
+        # Some streams put `content` directly on the record
         if not isinstance(content, list):
-            # Some streams put `content` directly on the record
             content = record.get("content")
-        if not isinstance(content, list):
-            return
-        for block in content:
-            if not isinstance(block, dict):
-                continue
-            if block.get("type") != "tool_use":
+        for block in (content if isinstance(content, list) else []):
+            if not isinstance(block, dict) or block.get("type") != "tool_use":
                 continue
             name = block.get("name") or ""
             preview = _preview_for_input(block.get("input"))
             sys.stderr.write(f"  {_DIM}▸ {name}: {preview}{_NC}\n")
-            try:
-                sys.stderr.flush()
-            except Exception:
-                pass
+        try:
+            sys.stderr.flush()
+        except OSError:
+            pass
 
     elif msg_type == "result":
         cost = record.get("total_cost_usd")
@@ -114,7 +110,7 @@ def _emit_progress(line: str) -> None:
         sys.stderr.write(f"  {_DIM}  Cost: ${cost}{_NC}\n")
         try:
             sys.stderr.flush()
-        except Exception:
+        except OSError:
             pass
 
 
@@ -124,12 +120,10 @@ def _stream_stdout(stdout: Optional[IO[str]]) -> None:
         return
     try:
         for raw in stdout:
-            if not raw:
-                continue
-            _emit_progress(raw.rstrip("\r\n"))
-    except Exception:
-        # Never let stream-side errors crash the wrapper; surface via exit code.
-        pass
+            if raw:
+                _emit_progress(raw.rstrip("\r\n"))
+    except Exception as exc:
+        sys.stderr.write(f"[harness] stream error: {exc}\n")
 
 
 def invoke_claude(
@@ -140,20 +134,8 @@ def invoke_claude(
 ) -> int:
     """Invoke `claude -p` with streaming progress display.
 
-    Parameters
-    ----------
-    agent: agent role name passed via `--agent`.
-    prompt: the prompt body passed via `-p`.
-    max_turns: maximum number of agent turns (default 50).
-    mcp_config: optional path to an MCP config file.
-
-    Returns
-    -------
-    int -- the subprocess exit code (0 on success).
-
-    Raises
-    ------
-    FileNotFoundError if the `claude` binary cannot be found on PATH.
+    Returns the subprocess exit code (0 on success).
+    Raises FileNotFoundError if the `claude` binary is not on PATH.
     """
     claude_path = shutil.which("claude")
     if claude_path is None:
@@ -178,10 +160,7 @@ def invoke_claude(
         _stream_stdout(proc.stdout)
     finally:
         if proc.stdout is not None:
-            try:
-                proc.stdout.close()
-            except Exception:
-                pass
+            proc.stdout.close()
         rc = proc.wait()
 
     return rc

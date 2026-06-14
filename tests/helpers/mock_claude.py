@@ -44,9 +44,8 @@ def _write_count(path: Path, count: int) -> None:
 
 
 def _append_log(log_path: str, line: str) -> None:
-    """Append a line to log_path, tolerating /dev/null and missing dirs."""
-    if log_path in ("/dev/null", os.devnull, "nul", "NUL"):
-        # Discard, matching bash >> /dev/null
+    """Append a line to log_path, tolerating os.devnull and missing dirs."""
+    if Path(log_path).resolve() == Path(os.devnull).resolve():
         return
     try:
         p = Path(log_path)
@@ -58,7 +57,7 @@ def _append_log(log_path: str, line: str) -> None:
         pass
 
 
-def _parse_args(argv):
+def _parse_args(argv: list[str]) -> tuple[str, str]:
     """Extract --agent and -p values from argv, ignoring everything else."""
     agent = ""
     prompt = ""
@@ -77,10 +76,8 @@ def _parse_args(argv):
 
 
 def _default_state_dir() -> str:
-    """Match bash default of /tmp/mock-claude-state, with a Windows fallback."""
-    if os.name == "nt":
-        return os.path.join(tempfile.gettempdir(), "mock-claude-state")
-    return "/tmp/mock-claude-state"
+    """Return a platform-appropriate default state directory."""
+    return os.path.join(tempfile.gettempdir(), "mock-claude-state")
 
 
 def _extract_sprint_dir(prompt: str):
@@ -108,7 +105,7 @@ def _usage_json() -> None:
     )
     try:
         sys.stdout.flush()
-    except Exception:
+    except OSError:
         pass
 
 

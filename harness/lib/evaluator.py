@@ -14,9 +14,8 @@ Field-name tolerance mirrors evaluator.sh EXACTLY:
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from harness.lib.invoke import invoke_claude
 from harness.lib.utils import (
@@ -34,15 +33,15 @@ from harness.lib.utils import (
 
 
 def _read_json(path: Path) -> Any:
+    """Read JSON from path; return None on any error."""
     try:
-        if not path.is_file():
-            return None
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
     except (OSError, ValueError):
         return None
 
 
 def _get_result(data: Any) -> str:
+    """Extract the eval result string (lowercased) tolerating multiple field names."""
     if not isinstance(data, dict):
         return "unknown"
     for key in ("overallResult", "result", "verdict"):
@@ -53,10 +52,12 @@ def _get_result(data: Any) -> str:
 
 
 def _get_count(data: Any, *keys: str) -> int:
+    """Extract an integer count tolerating multiple field names and nested keys."""
     if not isinstance(data, dict):
         return 0
     for key in keys:
         if "." in key:
+            # Nested key like "score.passedCriteria"
             outer, inner = key.split(".", 1)
             sub = data.get(outer)
             if isinstance(sub, dict):
@@ -70,21 +71,17 @@ def _get_count(data: Any, *keys: str) -> int:
     return 0
 
 
-def invoke_evaluator(sprint_num: Any, attempt: int = 1) -> bool:
-    """Invoke evaluator agent for a sprint. Returns True on PASS, False on FAIL."""
-    sprint_num_int = int(sprint_num)
-    attempt = int(attempt)
-    pad = sprint_pad(sprint_num_int)
-    dir_path = Path(sprint_dir(sprint_num_int))
+def invoke_evaluator(sprint_num: int, attempt: int = 1) -> bool:
+    """Invoke the evaluator agent for a sprint. Returns True on PASS, False on FAIL."""
+    pad = sprint_pad(sprint_num)
+    dir_path = Path(sprint_dir(sprint_num))
 
     log_info(f"Evaluator testing sprint {pad} (attempt {attempt})...")
 
-    project_type = json_read(
-        str(Path(HARNESS_STATE) / "config.json"), ".projectType"
-    )
+    project_type = json_read(str(Path(HARNESS_STATE) / "config.json"), ".projectType")
 
     prompt = (
-        f"Evaluate sprint {sprint_num_int}. Read the contract at "
+        f"Evaluate sprint {sprint_num}. Read the contract at "
         f"harness-state/sprints/sprint-{pad}/contract.json. "
         f"Read harness-state/handoff.json for git branch info and dev server "
         f"details. Use git diff to understand what changed. Start the dev server, "
@@ -94,8 +91,9 @@ def invoke_evaluator(sprint_num: Any, attempt: int = 1) -> bool:
         f"harness-state/sprints/sprint-{pad}/eval-report.json and update status.json."
     )
 
-    design_spec_path = Path(HARNESS_STATE) / "design-spec.md"
-    if project_type == "web-frontend" and file_exists(str(design_spec_path)):
+    if project_type == "web-frontend" and file_exists(
+        str(Path(HARNESS_STATE) / "design-spec.md")
+    ):
         prompt += (
             " IMPORTANT: Read harness-state/design-spec.md and verify the "
             "implementation matches the design system. Design Quality and "
@@ -103,12 +101,12 @@ def invoke_evaluator(sprint_num: Any, attempt: int = 1) -> bool:
             "Quality < 6 or Originality < 5."
         )
 
-    mcp_config: str | None = None
-    if project_type == "web-frontend" and Path(".mcp.json").is_file():
-        mcp_config = ".mcp.json"
+    mcp_config: Optional[str] = (
+        ".mcp.json" if project_type == "web-frontend" and Path(".mcp.json").is_file()
+        else None
+    )
 
-    rc = invoke_claude("evaluator", prompt, max_turns=100, mcp_config=mcp_config)
-    if rc != 0:
+    if invoke_claude("evaluator", prompt, max_turns=100, mcp_config=mcp_config) != 0:
         log_error("Evaluator invocation failed")
         return False
 
@@ -119,41 +117,30 @@ def invoke_evaluator(sprint_num: Any, attempt: int = 1) -> bool:
 
     report = _read_json(report_path)
     result = _get_result(report)
-
-    pass_count = _get_count(
-        report, "passCount", "pass_count", "score.passedCriteria", "score.passed"
-    )
-    fail_count = _get_count(
-        report, "failCount", "fail_count", "score.failedCriteria", "score.failed"
-    )
-    blocking = _get_count(
-        report, "blockingFailures", "blocking_failures", "score.blocking"
-    )
+    pass_count = _get_count(report, "passCount", "pass_count", "score.passedCriteria", "score.passed")
+    fail_count = _get_count(report, "failCount", "fail_count", "score.failedCriteria", "score.failed")
+    blocking = _get_count(report, "blockingFailures", "blocking_failures", "score.blocking")
 
     if result in ("pass", "passed"):
         log_success(
-            f"Sprint {pad} PASSED ({pass_count} pass, {fail_count} fail, "
-            f"{blocking} blocking)"
+            f"Sprint {pad} PASSED ({pass_count} pass, {fail_count} fail, {blocking} blocking)"
         )
         return True
-    else:
-        log_warn(
-            f"Sprint {pad} FAILED ({pass_count} pass, {fail_count} fail, "
-            f"{blocking} blocking)"
-        )
-        summary = ""
-        if isinstance(report, dict):
-            summary = str(report.get("summary", ""))[:300]
-        log_warn(f"Summary: {summary}")
-        return False
+
+    log_warn(f"Sprint {pad} FAILED ({pass_count} pass, {fail_count} fail, {blocking} blocking)")
+    if isinstance(report, dict):
+        log_warn(f"Summary: {str(report.get('summary', ''))[:300]}")
+    return False
 
 
 def invoke_regression() -> bool:
     """Run regression tests against all prior sprints. Returns True if all pass."""
     log_phase("REGRESSION TEST")
 
-    project_type = json_read(
-        str(Path(HARNESS_STATE) / "config.json"), ".projectType"
+    project_type = json_read(str(Path(HARNESS_STATE) / "config.json"), ".projectType")
+    mcp_config: Optional[str] = (
+        ".mcp.json" if project_type == "web-frontend" and Path(".mcp.json").is_file()
+        else None
     )
 
     prompt = (
@@ -164,26 +151,19 @@ def invoke_regression() -> bool:
         "harness-state/regression/last-run.json."
     )
 
-    mcp_config: str | None = None
-    if project_type == "web-frontend" and Path(".mcp.json").is_file():
-        mcp_config = ".mcp.json"
-
-    rc = invoke_claude("evaluator", prompt, max_turns=100, mcp_config=mcp_config)
-    if rc != 0:
+    if invoke_claude("evaluator", prompt, max_turns=100, mcp_config=mcp_config) != 0:
         log_error("Regression test invocation failed")
         return False
 
     last_run_path = Path(HARNESS_STATE) / "regression" / "last-run.json"
     if file_exists(str(last_run_path)):
         data = _read_json(last_run_path)
-        total_pass = 0
-        total_fail = 0
         if isinstance(data, dict):
-            total_pass = int(data.get("pass", 0) or 0)
-            total_fail = int(data.get("fail", 0) or 0)
-        if total_fail > 0:
-            log_error(f"Regression FAILED: {total_pass} pass, {total_fail} fail")
-            return False
-        log_success(f"Regression PASSED: {total_pass} pass, {total_fail} fail")
+            total_pass = int(data.get("pass") or 0)
+            total_fail = int(data.get("fail") or 0)
+            if total_fail > 0:
+                log_error(f"Regression FAILED: {total_pass} pass, {total_fail} fail")
+                return False
+            log_success(f"Regression PASSED: {total_pass} pass, {total_fail} fail")
 
     return True
