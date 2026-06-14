@@ -197,6 +197,26 @@ def resolve_mode(args: argparse.Namespace) -> tuple:
 # Sprint loop
 # ---------------------------------------------------------------------------
 
+def _git_checkout(branch: str) -> None:
+    """Checkout a branch, logging stderr on failure (never raises)."""
+    from harness.lib import git as _git_mod
+    try:
+        _git_mod._run(["git", "checkout", branch], check=True, capture=True)
+    except Exception as exc:
+        from harness.lib import utils as _utils
+        _utils.log_warn(f"git checkout {branch} failed: {exc}")
+
+
+def _git_checkout_new(branch: str, base: str) -> None:
+    """Create and checkout a new branch from base, logging stderr on failure."""
+    from harness.lib import git as _git_mod
+    try:
+        _git_mod._run(["git", "checkout", "-b", branch, base],
+                      check=True, capture=True)
+    except Exception as exc:
+        from harness.lib import utils as _utils
+        _utils.log_warn(f"git checkout -b {branch} {base} failed: {exc}")
+
 def _run_sprint(sprint_num: int, harness_branch: str) -> int:
     """Run a single sprint: contract -> generator -> evaluator with retries.
 
@@ -352,8 +372,7 @@ def run_new_build(prompt: str, project_type: str, context_strategy: str,
     # Plan
     sprint_count = planner_mod.invoke_planner("new")
     git_mod.commit_harness_state("harness(plan): product spec and sprint plan")
-    subprocess.run(["git", "tag", "harness/plan"], check=False,
-                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    git_mod._run(["git", "tag", "harness/plan"], check=False, capture=True)
 
     utils.log_info(f"Sprint plan: {sprint_count} sprints")
 
@@ -387,8 +406,7 @@ def run_new_build(prompt: str, project_type: str, context_strategy: str,
         except FileNotFoundError:
             utils.log_warn("claude CLI not found -- skipping README generation")
 
-        subprocess.run(["git", "add", "README.md"], check=False,
-                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        git_mod._run(["git", "add", "README.md"], check=False, capture=True)
         git_mod.commit_harness_state("harness: generate README.md")
 
     utils.log_phase("HARNESS COMPLETE")
@@ -427,8 +445,7 @@ def run_extend(prompt: str) -> int:
     handoff_path = Path(utils.HARNESS_STATE) / "handoff.json"
     harness_branch = utils.json_read(str(handoff_path), ".git.harnessBranch")
     if harness_branch:
-        subprocess.run(["git", "checkout", harness_branch], check=False,
-                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        _git_checkout(harness_branch)
 
     # Update config with new prompt
     try:
@@ -493,8 +510,7 @@ def run_fix(prompt: str) -> int:
     handoff_path = Path(utils.HARNESS_STATE) / "handoff.json"
     harness_branch = utils.json_read(str(handoff_path), ".git.harnessBranch")
     if harness_branch:
-        subprocess.run(["git", "checkout", harness_branch], check=False,
-                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        _git_checkout(harness_branch)
 
     issue_number = git_mod.create_issue(
         f"Bug: {prompt}",
@@ -529,10 +545,7 @@ def run_fix(prompt: str) -> int:
         return 1
 
     sprint_branch = f"{harness_branch}/{fix_id}"
-    subprocess.run(
-        ["git", "checkout", "-b", sprint_branch, harness_branch],
-        check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-    )
+    _git_checkout_new(sprint_branch, harness_branch)
 
     invoke_mod.invoke_claude(
         "generator",
@@ -580,8 +593,7 @@ def run_refactor(prompt: str) -> int:
     handoff_path = Path(utils.HARNESS_STATE) / "handoff.json"
     harness_branch = utils.json_read(str(handoff_path), ".git.harnessBranch")
     if harness_branch:
-        subprocess.run(["git", "checkout", harness_branch], check=False,
-                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        _git_checkout(harness_branch)
 
     utils.log_info("Running pre-refactor regression baseline...")
     try:
@@ -607,10 +619,7 @@ def run_refactor(prompt: str) -> int:
         return 1
 
     sprint_branch = f"{harness_branch}/refactor-001"
-    subprocess.run(
-        ["git", "checkout", "-b", sprint_branch, harness_branch],
-        check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-    )
+    _git_checkout_new(sprint_branch, harness_branch)
 
     invoke_mod.invoke_claude(
         "generator",
@@ -657,8 +666,7 @@ def run_resume(from_sprint: int) -> int:
 
     harness_branch = utils.json_read(str(handoff_path), ".git.harnessBranch")
     if harness_branch:
-        subprocess.run(["git", "checkout", harness_branch], check=False,
-                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        _git_checkout(harness_branch)
 
     plan_path = Path(utils.HARNESS_STATE) / "sprint-plan.json"
     total_str = utils.json_read(str(plan_path), ".sprints | length")
